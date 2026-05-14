@@ -51,11 +51,17 @@ pnpm db:migrate
 
 ## Local MVP web slice
 
-Start the API and web app in two terminals:
+Start only the public MVP surface (API + web app) with one command:
 
 ```bash
-pnpm --filter @etsy-oi/api dev
-pnpm --filter @etsy-oi/web dev
+pnpm dev:mvp
+```
+
+Or start them separately in two terminals:
+
+```bash
+pnpm dev:api
+pnpm dev:web
 ```
 
 Open `http://127.0.0.1:3000` locally or `http://<SERVER-IP>:3000` from another device on the network. The Vite dev server proxies `/api/*` to the Fastify API on `http://127.0.0.1:4000`.
