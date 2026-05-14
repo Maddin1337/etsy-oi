@@ -121,6 +121,7 @@ main {
 .scoreCard,
 .detailsPanel,
 .workbench,
+.recentAnalyses,
 .loadingPanel,
 .alert {
   background: #fffdf9;
@@ -140,6 +141,76 @@ main {
 
 .workbench {
   padding: 24px;
+}
+
+.recentAnalyses {
+  margin-top: 24px;
+  padding: 24px;
+}
+
+.sectionHeader {
+  align-items: center;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+
+.sectionHeader h2 {
+  margin: 6px 0 0;
+}
+
+.filterChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.filterChips button {
+  background: #f6f4ef;
+  border: 1px solid #d7cfbf;
+  border-radius: 999px;
+  color: #4f4941;
+  padding: 8px 12px;
+}
+
+.filterChips .selectedChip {
+  background: #1f6f68;
+  border-color: #1f6f68;
+  color: #fff;
+}
+
+.recentAnalysisList {
+  display: grid;
+  gap: 12px;
+}
+
+.recentAnalysisCard {
+  align-items: center;
+  border: 1px solid #e3dbce;
+  border-radius: 8px;
+  color: inherit;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 14px 16px;
+  text-decoration: none;
+}
+
+.recentAnalysisCard strong,
+.recentAnalysisCard span,
+.recentAnalysisCard b {
+  display: block;
+}
+
+.recentAnalysisCard span {
+  color: #6e665d;
+  font-size: 0.88rem;
+}
+
+.compact {
+  margin-top: 0;
+  padding: 14px 16px;
 }
 
 .tabs {
@@ -483,8 +554,14 @@ meter {
 
   .intro,
   .statusPanel,
-  .resultLayout {
+  .resultLayout,
+  .recentAnalysisCard {
     grid-template-columns: 1fr;
+  }
+
+  .sectionHeader {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .stateGrid,

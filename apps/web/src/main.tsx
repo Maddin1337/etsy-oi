@@ -19,7 +19,14 @@ type AnalysisDetail = {
   result: AnalysisResult | null;
 };
 
+type AnalysisListResponse = {
+  items: AnalysisDto[];
+  next_cursor: string | null;
+  filters: unknown;
+};
+
 type Flow = "keyword" | "listing";
+type DashboardFilter = "all" | Flow;
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "/api";
 const terminalStatuses: AnalysisStatus[] = ["completed", "partial", "failed", "stale", "refreshed", "cancelled"];
@@ -40,6 +47,17 @@ function statusCopy(status: AnalysisStatus): { label: string; tone: string; deta
     validation_failed: { label: "Validierung fehlgeschlagen", tone: "danger", detail: "Die geparsten Daten haben die v1-Qualitätsregeln nicht bestanden." }
   };
   return map[status];
+}
+
+function analysisTypeLabel(type: AnalysisDto["type"]): string {
+  return type === "keyword" ? "Keyword-Analyse" : "Listing-Analyse";
+}
+
+function analysisTimestamp(value: string): string {
+  return new Date(value).toLocaleString("de-DE", {
+    dateStyle: "short",
+    timeStyle: "short"
+  });
 }
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
@@ -111,6 +129,37 @@ function Dashboard({
   setFlow: (flow: Flow) => void;
   onCreated: (id: string) => void;
 }) {
+  const [items, setItems] = useState<AnalysisDto[]>([]);
+  const [filter, setFilter] = useState<DashboardFilter>("all");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadRecentAnalyses() {
+      try {
+        setLoading(true);
+        const response = await apiFetch<AnalysisListResponse>("/v1/analyses");
+        if (cancelled) return;
+        setItems(response.items);
+        setError(null);
+      } catch (err) {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : "Die letzten Analysen konnten nicht geladen werden.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    loadRecentAnalyses();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const filteredItems = items.filter((item) => filter === "all" || item.type === filter);
+
   return (
     <div className="shell">
       <section className="intro">
@@ -140,6 +189,60 @@ function Dashboard({
           </button>
         </div>
         {flow === "keyword" ? <KeywordForm onCreated={onCreated} /> : <ListingForm onCreated={onCreated} />}
+      </section>
+
+      <section className="recentAnalyses" aria-label="Letzte Analysen">
+        <div className="sectionHeader">
+          <div>
+            <p className="eyebrow">Verlauf</p>
+            <h2>Letzte Analysen</h2>
+          </div>
+          <div className="filterChips" role="toolbar" aria-label="Filter für letzte Analysen">
+            <button className={filter === "all" ? "selectedChip" : ""} onClick={() => setFilter("all")} type="button">
+              Alle
+            </button>
+            <button className={filter === "keyword" ? "selectedChip" : ""} onClick={() => setFilter("keyword")} type="button">
+              Nur Keyword
+            </button>
+            <button className={filter === "listing" ? "selectedChip" : ""} onClick={() => setFilter("listing")} type="button">
+              Nur Listing
+            </button>
+          </div>
+        </div>
+
+        {loading ? <div className="loadingPanel compact">Letzte Analysen werden geladen...</div> : null}
+        {error ? <div className="alert danger compact">{error}</div> : null}
+        {!loading && !error ? (
+          filteredItems.length ? (
+            <div className="recentAnalysisList">
+              {filteredItems.slice(0, 8).map((analysis) => {
+                const copy = statusCopy(analysis.status);
+                return (
+                  <a
+                    key={analysis.id}
+                    className="recentAnalysisCard"
+                    href={`/analyses/${analysis.id}`}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      onCreated(analysis.id);
+                    }}
+                  >
+                    <div>
+                      <strong>{analysisTypeLabel(analysis.type)}</strong>
+                      <span>{analysis.id}</span>
+                    </div>
+                    <div>
+                      <b className={copy.tone}>{copy.label}</b>
+                      <span>{analysisTimestamp(analysis.created_at)}</span>
+                    </div>
+                  </a>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="loadingPanel compact">Für diesen Filter gibt es noch keine Analysen.</div>
+          )
+        ) : null}
       </section>
 
       <section className="stateGrid" aria-label="Statusvorschau der Analyse">

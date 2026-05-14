@@ -58,3 +58,50 @@ test("Analyse-Detail kann aktualisiert werden und zurück zum Dashboard navigier
   await expect(page).toHaveURL("/");
   await expect(page.getByRole("heading", { name: /starte eine fokussierte etsy-chancenanalyse/i })).toBeVisible();
 });
+
+test("Dashboard zeigt letzte Analysen, filtert sie und öffnet sie erneut", async ({ page }) => {
+  const uniqueSuffix = Date.now().toString().slice(-6);
+  const keywordTerm = `retro poster set ${uniqueSuffix}`;
+  const listingId = `1234${uniqueSuffix}`;
+
+  await page.goto("/");
+
+  await page.getByLabel("Suchbegriff").fill(keywordTerm);
+  await page.getByRole("button", { name: "Suchbegriff-Analyse starten" }).click();
+  await expect(page).toHaveURL(/\/analyses\/an_/);
+  const keywordAnalysisUrl = page.url();
+  const keywordAnalysisId = keywordAnalysisUrl.split("/").pop() ?? "";
+
+  await page.getByRole("button", { name: "Zurück zu den Analyseformularen" }).click();
+  await expect(page).toHaveURL("/");
+
+  await page.getByRole("tab", { name: "Listing-Analyse" }).click();
+  await page.getByLabel("Etsy-Listing-URL").fill(`https://www.etsy.com/listing/${listingId}/example?utm_source=history-test`);
+  await page.getByRole("button", { name: "Listing-Analyse starten" }).click();
+  await expect(page).toHaveURL(/\/analyses\/an_/);
+  const listingAnalysisUrl = page.url();
+  const listingAnalysisId = listingAnalysisUrl.split("/").pop() ?? "";
+
+  await page.getByRole("button", { name: "Zurück zu den Analyseformularen" }).click();
+  await expect(page).toHaveURL("/");
+
+  const recentAnalyses = page.getByLabel("Letzte Analysen");
+  await expect(recentAnalyses.getByText(keywordAnalysisId, { exact: true })).toBeVisible();
+  await expect(recentAnalyses.getByText(listingAnalysisId, { exact: true })).toBeVisible();
+
+  await recentAnalyses.getByRole("button", { name: "Nur Keyword" }).click();
+  await expect(recentAnalyses.getByText(keywordAnalysisId, { exact: true })).toBeVisible();
+  await expect(recentAnalyses.getByText(listingAnalysisId, { exact: true })).toHaveCount(0);
+
+  await recentAnalyses.getByRole("button", { name: "Nur Listing" }).click();
+  await expect(recentAnalyses.getByText(listingAnalysisId, { exact: true })).toBeVisible();
+  await expect(recentAnalyses.getByText(keywordAnalysisId, { exact: true })).toHaveCount(0);
+  await recentAnalyses.getByRole("link", { name: new RegExp(`Listing-Analyse\\s+${listingAnalysisId}`) }).click();
+  await expect(page).toHaveURL(listingAnalysisUrl);
+  await expect(page.getByLabel("Analyse-Status").getByRole("heading", { name: "Abgeschlossen" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Zurück zu den Analyseformularen" }).click();
+  await recentAnalyses.getByRole("button", { name: "Alle" }).click();
+  await recentAnalyses.getByRole("link", { name: new RegExp(`Keyword-Analyse\\s+${keywordAnalysisId}`) }).click();
+  await expect(page).toHaveURL(keywordAnalysisUrl);
+});
