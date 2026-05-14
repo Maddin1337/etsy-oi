@@ -1,0 +1,13 @@
+apiVersion: 1
+
+providers:
+  - name: etsy-oi-local
+    orgId: 1
+    folder: Etsy OI
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: ops/grafana/dashboards
+

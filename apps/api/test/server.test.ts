@@ -1,0 +1,238 @@
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import type { FastifyInstance } from "fastify";
+import { execFileSync } from "node:child_process";
+import { Pool } from "pg";
+import { buildServer } from "../src/server.js";
+
+const databaseUrl = process.env.DATABASE_URL ?? "postgresql://root@/etsy_oi?host=/var/run/postgresql";
+const defaultWorkspaceId = process.env.DEFAULT_WORKSPACE_ID ?? "00000000-0000-0000-0000-000000000001";
+const pool = new Pool({ connectionString: databaseUrl });
+
+async function makeServer(): Promise<FastifyInstance> {
+  const app = buildServer();
+  await app.ready();
+  return app;
+}
+
+async function queryOne<T>(sql: string, values: unknown[] = []): Promise<T> {
+  const result = await pool.query<T>(sql, values);
+  return result.rows[0] as T;
+}
+
+beforeAll(() => {
+  execFileSync("psql", ["-d", "etsy_oi", "-f", "packages/db/migrations/0001_foundation.sql"], {
+    cwd: "/root/projects/etsy-opportunity-intelligence",
+    stdio: "ignore"
+  });
+});
+
+beforeEach(async () => {
+  process.env.DATABASE_URL = databaseUrl;
+  process.env.DEFAULT_WORKSPACE_ID = defaultWorkspaceId;
+
+  await pool.query(`
+    TRUNCATE TABLE
+      capture_jobs,
+      analyses,
+      listings,
+      keywords,
+      projects,
+      workspaces
+    RESTART IDENTITY CASCADE
+  `);
+});
+
+describe("api v1 analysis behavior", () => {
+  let app: FastifyInstance | null = null;
+
+  afterEach(async () => {
+    await app?.close();
+    app = null;
+  });
+
+  it("liefert die zentrale Validierungsfehlerstruktur für ungültige Listing-URLs zurück", async () => {
+    app = await makeServer();
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/analyses/listing",
+      payload: {
+        listing_url: "https://example.com/listing/1234567890/not-etsy"
+      }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      code: "validation_failed",
+      message: "Die Anfrage entspricht nicht dem v1-Vertrag."
+    });
+    expect(response.json().issues[0].path).toEqual(["listing_url"]);
+  });
+
+  it("persistiert Keyword-Analysen und legt das Default-Workspace automatisch an", async () => {
+    app = await makeServer();
+    const payload = {
+      term: "  Mid   Century Wall Art  ",
+      locale: "en-US",
+      refresh_policy: "if_stale"
+    };
+
+    const first = await app.inject({ method: "POST", url: "/v1/analyses/keyword", payload });
+    const second = await app.inject({ method: "POST", url: "/v1/analyses/keyword", payload });
+
+    expect(first.statusCode).toBe(202);
+    expect(second.statusCode).toBe(202);
+    expect(first.json().analysis.id).toBe(second.json().analysis.id);
+    expect(first.json().idempotency.replayed).toBe(false);
+    expect(second.json().idempotency.replayed).toBe(true);
+    expect(second.json().normalized_input).toMatchObject({
+      term: "mid century wall art",
+      contract_version: "v1"
+    });
+
+    const workspace = await queryOne<{ id: string; slug: string }>(
+      "select id, slug from workspaces where id = $1",
+      [defaultWorkspaceId]
+    );
+    const counts = await queryOne<{ analyses_count: number; keywords_count: number }>(`
+      select
+        (select count(*)::int from analyses) as analyses_count,
+        (select count(*)::int from keywords) as keywords_count
+    `);
+
+    expect(workspace).toMatchObject({ id: defaultWorkspaceId, slug: "default" });
+    expect(counts).toMatchObject({ analyses_count: 1, keywords_count: 1 });
+  });
+
+  it("reagiert bei parallelen Duplicate-Submits ohne 500 und liefert dieselbe Analyse-ID zurück", async () => {
+    app = await makeServer();
+    const payload = {
+      term: "parallel idempotency keyword",
+      locale: "en-US",
+      refresh_policy: "if_stale"
+    };
+
+    const [first, second] = await Promise.all([
+      app.inject({ method: "POST", url: "/v1/analyses/keyword", payload }),
+      app.inject({ method: "POST", url: "/v1/analyses/keyword", payload })
+    ]);
+
+    expect(first.statusCode).toBe(202);
+    expect(second.statusCode).toBe(202);
+    expect(first.json().analysis.id).toBe(second.json().analysis.id);
+  });
+
+  it("liest eine persistierte Analyse auch nach einem Server-Neustart wieder aus", async () => {
+    app = await makeServer();
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/analyses/listing",
+      payload: {
+        listing_url: "https://www.etsy.com/listing/1234567890/example?utm_source=test",
+        refresh_policy: "if_stale"
+      }
+    });
+    const analysisId = created.json().analysis.id;
+
+    await app.close();
+    app = await makeServer();
+
+    const persisted = await app.inject({ method: "GET", url: `/v1/analyses/${analysisId}` });
+
+    expect(persisted.statusCode).toBe(200);
+    expect(persisted.json().analysis.id).toBe(analysisId);
+    expect(["queued", "running", "partial", "completed"]).toContain(persisted.json().analysis.status);
+  });
+
+  it("hält Refresh idempotent und markiert die Originalanalyse als aktualisiert", async () => {
+    app = await makeServer();
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/analyses/listing",
+      payload: {
+        listing_url: "https://www.etsy.com/listing/1234567890/example?utm_source=test",
+        refresh_policy: "if_stale"
+      }
+    });
+    const analysisId = created.json().analysis.id;
+
+    const firstRefresh = await app.inject({
+      method: "POST",
+      url: `/v1/analyses/${analysisId}/refresh`,
+      payload: { priority: "high" }
+    });
+    const replayRefresh = await app.inject({
+      method: "POST",
+      url: `/v1/analyses/${analysisId}/refresh`,
+      payload: { priority: "high" }
+    });
+    const original = await app.inject({ method: "GET", url: `/v1/analyses/${analysisId}` });
+
+    expect(firstRefresh.statusCode).toBe(202);
+    expect(replayRefresh.statusCode).toBe(202);
+    expect(firstRefresh.json().analysis.id).toBe(replayRefresh.json().analysis.id);
+    expect(firstRefresh.json().idempotency.replayed).toBe(false);
+    expect(replayRefresh.json().idempotency.replayed).toBe(true);
+    expect(firstRefresh.json().refresh_of_analysis_id).toBe(analysisId);
+    expect(original.json().analysis.status).toBe("refreshed");
+  });
+
+  it("validiert Refresh-Prioritäten gegen den v1-Vertrag", async () => {
+    app = await makeServer();
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/analyses/keyword",
+      payload: { term: "refresh validation", locale: "en-US" }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/v1/analyses/${created.json().analysis.id}/refresh`,
+      payload: { priority: "urgent" }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      code: "validation_failed",
+      message: "Die Anfrage entspricht nicht dem v1-Vertrag."
+    });
+    expect(response.json().issues[0].path).toEqual(["priority"]);
+  });
+
+  it("hält abgebrochene Analysen bei späteren Reads terminal", async () => {
+    app = await makeServer();
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/analyses/keyword",
+      payload: { term: "cancel behavior contract", locale: "en-US" }
+    });
+    const analysisId = created.json().analysis.id;
+
+    const cancelled = await app.inject({ method: "POST", url: `/v1/analyses/${analysisId}/cancel` });
+    const afterRead = await app.inject({ method: "GET", url: `/v1/analyses/${analysisId}` });
+
+    expect(cancelled.statusCode).toBe(200);
+    expect(cancelled.json().analysis.status).toBe("cancelled");
+    expect(afterRead.json().analysis.status).toBe("cancelled");
+    expect(afterRead.json().analysis.progress).toMatchObject({
+      phase: "cancelled",
+      percent: 0
+    });
+  });
+
+  it("liefert die gemeinsame not_found-Fehlerstruktur für fehlende Analyse-Routen zurück", async () => {
+    app = await makeServer();
+
+    const read = await app.inject({ method: "GET", url: "/v1/analyses/an_missing" });
+    const refresh = await app.inject({ method: "POST", url: "/v1/analyses/an_missing/refresh", payload: {} });
+    const cancel = await app.inject({ method: "POST", url: "/v1/analyses/an_missing/cancel" });
+
+    for (const response of [read, refresh, cancel]) {
+      expect(response.statusCode).toBe(404);
+      expect(response.json()).toMatchObject({
+        code: "not_found",
+        message: "Analyse an_missing wurde nicht gefunden."
+      });
+    }
+  });
+});

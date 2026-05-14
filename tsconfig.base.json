@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "isolatedModules": true,
+    "noUncheckedIndexedAccess": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "@etsy-oi/shared-types": ["packages/shared-types/src/index.ts"],
+      "@etsy-oi/db": ["packages/db/src/index.ts"],
+      "@etsy-oi/extractors": ["packages/extractors/src/index.ts"],
+      "@etsy-oi/validators": ["packages/validators/src/index.ts"],
+      "@etsy-oi/scoring": ["packages/scoring/src/index.ts"],
+      "@etsy-oi/telemetry": ["packages/telemetry/src/index.ts"]
+    }
+  }
+}

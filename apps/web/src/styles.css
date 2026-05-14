@@ -1,0 +1,515 @@
+:root {
+  color: #202124;
+  background: #f6f4ef;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-synthesis: none;
+  line-height: 1.5;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+main {
+  min-height: 100vh;
+}
+
+.topbar {
+  align-items: center;
+  background: #fffdf9;
+  border-bottom: 1px solid #ddd6c9;
+  display: flex;
+  justify-content: space-between;
+  min-height: 72px;
+  padding: 0 32px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.brand {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  display: flex;
+  gap: 12px;
+  padding: 0;
+  text-align: left;
+}
+
+.brandMark {
+  align-items: center;
+  background: #1f6f68;
+  border-radius: 8px;
+  color: #fff;
+  display: inline-flex;
+  font-weight: 800;
+  height: 40px;
+  justify-content: center;
+  width: 40px;
+}
+
+.brand small,
+.eyebrow {
+  color: #6e665d;
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.topActions {
+  display: flex;
+  gap: 8px;
+}
+
+.topActions button,
+.backButton,
+.secondaryButton {
+  background: #fff;
+  border: 1px solid #cfc7ba;
+  border-radius: 8px;
+  color: #292621;
+  padding: 10px 14px;
+}
+
+.shell {
+  margin: 0 auto;
+  max-width: 1180px;
+  padding: 36px 24px 56px;
+}
+
+.intro {
+  align-items: end;
+  display: grid;
+  gap: 32px;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  margin-bottom: 28px;
+}
+
+.intro h1 {
+  font-size: clamp(2rem, 4vw, 4rem);
+  line-height: 1.02;
+  margin: 8px 0 16px;
+  max-width: 820px;
+}
+
+.intro p {
+  color: #4f4941;
+  margin: 0;
+  max-width: 720px;
+}
+
+.healthCard,
+.scoreCard,
+.detailsPanel,
+.workbench,
+.loadingPanel,
+.alert {
+  background: #fffdf9;
+  border: 1px solid #ddd6c9;
+  border-radius: 8px;
+}
+
+.healthCard {
+  display: grid;
+  gap: 8px;
+  padding: 18px;
+}
+
+.healthCard span {
+  color: #4f4941;
+}
+
+.workbench {
+  padding: 24px;
+}
+
+.tabs {
+  background: #ece6da;
+  border-radius: 8px;
+  display: inline-flex;
+  gap: 4px;
+  margin-bottom: 22px;
+  padding: 4px;
+}
+
+.tabs button {
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: #4f4941;
+  padding: 10px 14px;
+}
+
+.tabs .selected {
+  background: #fffdf9;
+  color: #15130f;
+  font-weight: 700;
+}
+
+.analysisForm {
+  display: grid;
+  gap: 18px;
+}
+
+label {
+  color: #4f4941;
+  display: grid;
+  font-size: 0.92rem;
+  font-weight: 700;
+  gap: 7px;
+}
+
+input,
+select {
+  background: #fff;
+  border: 1px solid #beb4a6;
+  border-radius: 8px;
+  color: #201d19;
+  min-height: 46px;
+  padding: 10px 12px;
+}
+
+input:focus,
+select:focus,
+button:focus {
+  outline: 3px solid rgba(31, 111, 104, 0.22);
+  outline-offset: 2px;
+}
+
+.optionGrid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.primaryButton {
+  background: #c94f24;
+  border: 1px solid #a8421e;
+  border-radius: 8px;
+  color: #fff;
+  font-weight: 800;
+  min-height: 48px;
+  padding: 12px 18px;
+  width: fit-content;
+}
+
+.primaryButton:disabled,
+.secondaryButton:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.formError,
+.alert.danger {
+  color: #9b1c1c;
+}
+
+.stateGrid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  margin-top: 24px;
+}
+
+.statusTile {
+  background: #fffdf9;
+  border: 1px solid #ddd6c9;
+  border-left: 5px solid #8d8174;
+  border-radius: 8px;
+  min-height: 126px;
+  padding: 14px;
+}
+
+.statusTile b,
+.statusTile span {
+  display: block;
+}
+
+.statusTile span {
+  color: #5b544b;
+  font-size: 0.86rem;
+  margin-top: 8px;
+}
+
+.statusPanel {
+  align-items: center;
+  background: #fffdf9;
+  border: 1px solid #ddd6c9;
+  border-left: 7px solid #8d8174;
+  border-radius: 8px;
+  display: grid;
+  gap: 24px;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  margin-top: 18px;
+  padding: 24px;
+}
+
+.statusPanel h2 {
+  font-size: 2rem;
+  margin: 4px 0 8px;
+}
+
+.statusPanel p {
+  color: #4f4941;
+  margin: 0;
+}
+
+.active {
+  border-left-color: #1f6f68;
+}
+
+.success {
+  border-left-color: #2f7d32;
+}
+
+.warning {
+  border-left-color: #c98218;
+}
+
+.danger {
+  border-left-color: #bf2d2d;
+}
+
+.progressBlock {
+  display: grid;
+  gap: 8px;
+}
+
+.progressBlock span {
+  font-size: 2rem;
+  font-weight: 800;
+}
+
+.progressTrack {
+  background: #e8e0d4;
+  border-radius: 999px;
+  height: 10px;
+  overflow: hidden;
+}
+
+.progressTrack div {
+  background: #1f6f68;
+  height: 100%;
+  transition: width 220ms ease;
+}
+
+.loadingPanel,
+.alert {
+  margin-top: 18px;
+  padding: 22px;
+}
+
+.resultLayout {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: 320px minmax(0, 1fr);
+  margin-top: 18px;
+}
+
+.scoreCard {
+  align-self: start;
+  padding: 22px;
+}
+
+.scoreCard strong {
+  display: block;
+  font-size: 4.2rem;
+  line-height: 1;
+  margin-top: 10px;
+}
+
+.scoreRows {
+  display: grid;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.scoreRows div {
+  align-items: center;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 92px 1fr 34px;
+}
+
+meter {
+  height: 10px;
+  width: 100%;
+}
+
+.detailsPanel {
+  padding: 24px;
+}
+
+.detailsPanel h2 {
+  font-size: 1.75rem;
+  line-height: 1.15;
+  margin: 0 0 18px;
+}
+
+.detailsPanel a {
+  color: #1f6f68;
+  display: inline-block;
+  font-weight: 700;
+  margin-bottom: 18px;
+}
+
+.metricGrid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.metric {
+  background: #f6f4ef;
+  border: 1px solid #e1d8ca;
+  border-radius: 8px;
+  padding: 14px;
+}
+
+.metric span,
+.metric strong {
+  display: block;
+}
+
+.metric span {
+  color: #6e665d;
+  font-size: 0.82rem;
+}
+
+.metric strong {
+  font-size: 1.25rem;
+  margin-top: 4px;
+}
+
+.explanations {
+  margin: 24px 0;
+}
+
+.explanations h3,
+.detailsPanel h3 {
+  margin: 0 0 12px;
+}
+
+.explanations p {
+  border-left: 3px solid #1f6f68;
+  color: #4f4941;
+  margin: 10px 0;
+  padding-left: 12px;
+}
+
+.listingTable {
+  border: 1px solid #ddd6c9;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.listingRow {
+  align-items: center;
+  border-bottom: 1px solid #e8e0d4;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 48px minmax(0, 1fr) 88px;
+  padding: 12px 14px;
+}
+
+.listingRow:last-child {
+  border-bottom: 0;
+}
+
+.listingRow span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tagList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tagList span {
+  background: #e9f3f0;
+  border: 1px solid #b5d7cf;
+  border-radius: 999px;
+  color: #155a54;
+  padding: 6px 10px;
+}
+
+.warnings {
+  background: #fff7e6;
+  border: 1px solid #e4c37c;
+  border-radius: 8px;
+  color: #65440c;
+  margin-top: 18px;
+  padding: 10px 12px;
+}
+
+.warnings p {
+  margin: 0;
+}
+
+.resultActions {
+  margin-top: 18px;
+}
+
+@media (max-width: 900px) {
+  .topbar {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+    padding: 18px;
+    position: static;
+  }
+
+  .intro,
+  .statusPanel,
+  .resultLayout {
+    grid-template-columns: 1fr;
+  }
+
+  .stateGrid,
+  .metricGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .shell {
+    padding: 24px 14px 44px;
+  }
+
+  .optionGrid,
+  .stateGrid,
+  .metricGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .tabs {
+    display: grid;
+    width: 100%;
+  }
+
+  .primaryButton {
+    width: 100%;
+  }
+}
