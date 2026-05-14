@@ -69,6 +69,41 @@ describe("api v1 analysis behavior", () => {
     expect(response.json().issues[0].path).toEqual(["listing_url"]);
   });
 
+  it("meldet readyz als ready, wenn Postgres erreichbar ist", async () => {
+    app = await makeServer();
+
+    const response = await app.inject({ method: "GET", url: "/readyz" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      status: "ready",
+      dependencies: {
+        postgres: "ready",
+        clickhouse: "not_configured",
+        redis: "not_configured",
+        temporal: "not_configured"
+      }
+    });
+  });
+
+  it("meldet readyz als degraded, wenn Postgres nicht erreichbar ist", async () => {
+    process.env.DATABASE_URL = "postgresql://127.0.0.1:1/etsy_oi";
+    app = await makeServer();
+
+    const response = await app.inject({ method: "GET", url: "/readyz" });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toMatchObject({
+      status: "degraded",
+      dependencies: {
+        postgres: "error",
+        clickhouse: "not_configured",
+        redis: "not_configured",
+        temporal: "not_configured"
+      }
+    });
+  });
+
   it("persistiert Keyword-Analysen und legt das Default-Workspace automatisch an", async () => {
     app = await makeServer();
     const payload = {

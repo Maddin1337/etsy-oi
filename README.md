@@ -18,6 +18,8 @@ Foundation monorepo for the v1 Etsy opportunity analysis product described in `d
 
 ```bash
 pnpm install
+cp .env.example .env
+pnpm db:bootstrap:local
 pnpm build
 pnpm typecheck
 pnpm test
@@ -27,6 +29,25 @@ pnpm --filter @etsy-oi/web dev
 ```
 
 `pnpm install` must be able to reach `https://registry.npmjs.org`. If install fails, the remaining commands will fail with missing local tools such as `turbo`, `vitest`, or `@playwright/test`.
+
+## Local Postgres bootstrap
+
+The API now persists the analysis lifecycle in Postgres, so local development needs a reachable `DATABASE_URL`.
+
+For the default Linux socket setup used in this repo:
+
+```bash
+cp .env.example .env
+pnpm db:bootstrap:local
+```
+
+That helper creates the local `etsy_oi` database if needed and applies `packages/db/migrations/0001_foundation.sql`.
+
+If you are using a different Postgres host/user, set `DATABASE_URL` first and then run:
+
+```bash
+pnpm db:migrate
+```
 
 ## Local MVP web slice
 
@@ -48,6 +69,12 @@ The current MVP web slice supports:
 - deterministic API stub data against the shared v1 contracts
 
 The API serves `/healthz`, `/readyz`, and v1 analysis route stubs. Create requests validate Etsy listing URLs, normalize keyword/listing inputs, and replay duplicate create requests by idempotency key. Refresh requests create a linked replacement analysis and mark the original as refreshed; cancel requests remain terminal on later reads. The implementation is a lightweight Fastify TypeScript skeleton so it can later be wrapped by NestJS without changing shared contracts.
+
+`GET /readyz` returns:
+
+- `200` with `status: "ready"`, when Postgres is reachable
+- `503` with `status: "degraded"`, when Postgres is unavailable
+- `clickhouse`, `redis`, and `temporal` currently report `not_configured` until those integrations are wired in
 
 ## Verification
 

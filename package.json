@@ -12,6 +12,8 @@
     "test": "turbo run test",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
+    "db:migrate": "psql \"$DATABASE_URL\" -v ON_ERROR_STOP=1 -f packages/db/migrations/0001_foundation.sql",
+    "db:bootstrap:local": "createdb etsy_oi >/dev/null 2>&1 || true && (psql -d etsy_oi -tAc \"select to_regclass('public.analyses') is not null\" | grep -q t || psql -d etsy_oi -v ON_ERROR_STOP=1 -f packages/db/migrations/0001_foundation.sql)",
     "clean": "turbo run clean && rm -rf node_modules"
   },
   "devDependencies": {

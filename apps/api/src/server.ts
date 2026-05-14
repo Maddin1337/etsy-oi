@@ -83,17 +83,19 @@ export function buildServer() {
 
   app.get("/healthz", async () => ({ status: "ok" }));
 
-  app.get("/readyz", async () => {
+  app.get("/readyz", async (_request, reply) => {
     const postgresReady = await store.ping().then(() => true).catch(() => false);
-    return {
+    const payload = {
       status: postgresReady ? "ready" : "degraded",
       dependencies: {
         postgres: postgresReady ? "ready" : "error",
-        clickhouse: "stubbed",
-        redis: "stubbed",
-        temporal: "stubbed"
+        clickhouse: "not_configured",
+        redis: "not_configured",
+        temporal: "not_configured"
       }
     };
+
+    return reply.code(postgresReady ? 200 : 503).send(payload);
   });
 
   app.post("/v1/analyses/keyword", async (request, reply) => {
