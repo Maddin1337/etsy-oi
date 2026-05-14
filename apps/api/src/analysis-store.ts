@@ -16,6 +16,8 @@ type AnalysisRecord = PersistedAnalysisRow &
     idempotency_key: string;
   };
 
+type CaptureJobReason = "initial" | "refresh" | "keyword_analysis";
+
 export type CreateKeywordInput = {
   term: string;
   locale: string;
@@ -48,6 +50,28 @@ async function firstRow<T extends QueryResultRow>(pool: Pool, text: string, valu
 
 function resolveDatabaseUrl(): string {
   return process.env.DATABASE_URL ?? DEFAULT_DATABASE_URL;
+}
+
+function captureJobShape(record: AnalysisRecord, reason: CaptureJobReason) {
+  if (record.analysis_type === "keyword") {
+    return {
+      jobType: "search_capture",
+      targetType: "keyword",
+      targetRef: record.term ?? "",
+      sourceUrl: `etsy://search/${encodeURIComponent(record.term ?? "")}?locale=${encodeURIComponent(record.locale ?? "en-US")}`,
+      workerQueue: "collector-search",
+      captureReason: reason === "refresh" ? "refresh" : "keyword_analysis"
+    } as const;
+  }
+
+  return {
+    jobType: "listing_capture",
+    targetType: "listing",
+    targetRef: record.listing_url ?? "",
+    sourceUrl: record.listing_url ?? "https://www.etsy.com/listing/1234567890",
+    workerQueue: "collector-listing",
+    captureReason: reason
+  } as const;
 }
 
 export class AnalysisStore {
@@ -128,6 +152,7 @@ export class AnalysisStore {
 
     const record = await this.findById(created?.id ?? "");
     if (!record) throw new Error("Keyword-Analyse konnte nach Insert nicht geladen werden.");
+    await this.enqueueCaptureJob(record, "keyword_analysis");
     return { record, idempotencyKey, replayed: false };
   }
 
@@ -182,6 +207,7 @@ export class AnalysisStore {
 
     const record = await this.findById(created?.id ?? "");
     if (!record) throw new Error("Listing-Analyse konnte nach Insert nicht geladen werden.");
+    await this.enqueueCaptureJob(record, "initial");
     return { record, idempotencyKey, replayed: false };
   }
 
@@ -271,6 +297,7 @@ export class AnalysisStore {
     const record = await this.findById(created?.id ?? "");
     const refreshedOriginal = await this.findById(original.id);
     if (!record || !refreshedOriginal) throw new Error("Refresh-Analyse konnte nicht geladen werden.");
+    await this.enqueueCaptureJob(record, "refresh");
     return { record, original: refreshedOriginal, idempotencyKey, replayed: false };
   }
 
@@ -329,6 +356,46 @@ export class AnalysisStore {
       [idempotencyKey]
     );
     return row ? this.findById(row.id) : null;
+  }
+
+  private async enqueueCaptureJob(record: AnalysisRecord, reason: CaptureJobReason): Promise<void> {
+    const shape = captureJobShape(record, reason);
+    const idempotencyKey = makeIdempotencyKey([
+      "capture-job",
+      record.id,
+      shape.jobType,
+      shape.captureReason,
+      shape.targetRef
+    ]);
+
+    await this.pool.query(
+      `
+        insert into capture_jobs (
+          analysis_id,
+          job_type,
+          target_type,
+          target_ref,
+          source_url,
+          capture_reason,
+          idempotency_key,
+          status,
+          worker_queue
+        )
+        values ($1::uuid, $2, $3, $4, $5, $6, $7, 'queued', $8)
+        on conflict (idempotency_key) do update
+          set idempotency_key = capture_jobs.idempotency_key
+      `,
+      [
+        record.id,
+        shape.jobType,
+        shape.targetType,
+        shape.targetRef,
+        shape.sourceUrl,
+        shape.captureReason,
+        idempotencyKey,
+        shape.workerQueue
+      ]
+    );
   }
 }
 

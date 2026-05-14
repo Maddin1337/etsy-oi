@@ -94,14 +94,36 @@ describe("api v1 analysis behavior", () => {
       "select id, slug from workspaces where id = $1",
       [defaultWorkspaceId]
     );
-    const counts = await queryOne<{ analyses_count: number; keywords_count: number }>(`
+    const counts = await queryOne<{ analyses_count: number; keywords_count: number; capture_jobs_count: number }>(`
       select
         (select count(*)::int from analyses) as analyses_count,
-        (select count(*)::int from keywords) as keywords_count
+        (select count(*)::int from keywords) as keywords_count,
+        (select count(*)::int from capture_jobs) as capture_jobs_count
+    `);
+
+    const captureJob = await queryOne<{
+      job_type: string;
+      target_type: string;
+      capture_reason: string;
+      worker_queue: string;
+      target_ref: string;
+      status: string;
+    }>(`
+      select job_type, target_type, capture_reason, worker_queue, target_ref, status
+      from capture_jobs
+      limit 1
     `);
 
     expect(workspace).toMatchObject({ id: defaultWorkspaceId, slug: "default" });
-    expect(counts).toMatchObject({ analyses_count: 1, keywords_count: 1 });
+    expect(counts).toMatchObject({ analyses_count: 1, keywords_count: 1, capture_jobs_count: 1 });
+    expect(captureJob).toMatchObject({
+      job_type: "search_capture",
+      target_type: "keyword",
+      capture_reason: "keyword_analysis",
+      worker_queue: "collector-search",
+      target_ref: "mid century wall art",
+      status: "queued"
+    });
   });
 
   it("reagiert bei parallelen Duplicate-Submits ohne 500 und liefert dieselbe Analyse-ID zurück", async () => {
@@ -167,6 +189,16 @@ describe("api v1 analysis behavior", () => {
       payload: { priority: "high" }
     });
     const original = await app.inject({ method: "GET", url: `/v1/analyses/${analysisId}` });
+    const captureJobs = await pool.query<{
+      analysis_id: string;
+      capture_reason: string;
+      job_type: string;
+      worker_queue: string;
+    }>(`
+      select analysis_id::text, capture_reason, job_type, worker_queue
+      from capture_jobs
+      order by created_at asc
+    `);
 
     expect(firstRefresh.statusCode).toBe(202);
     expect(replayRefresh.statusCode).toBe(202);
@@ -175,6 +207,19 @@ describe("api v1 analysis behavior", () => {
     expect(replayRefresh.json().idempotency.replayed).toBe(true);
     expect(firstRefresh.json().refresh_of_analysis_id).toBe(analysisId);
     expect(original.json().analysis.status).toBe("refreshed");
+    expect(captureJobs.rows).toHaveLength(2);
+    expect(captureJobs.rows[0]).toMatchObject({
+      analysis_id: analysisId.replace("an_", ""),
+      capture_reason: "initial",
+      job_type: "listing_capture",
+      worker_queue: "collector-listing"
+    });
+    expect(captureJobs.rows[1]).toMatchObject({
+      analysis_id: firstRefresh.json().analysis.id.replace("an_", ""),
+      capture_reason: "refresh",
+      job_type: "listing_capture",
+      worker_queue: "collector-listing"
+    });
   });
 
   it("validiert Refresh-Prioritäten gegen den v1-Vertrag", async () => {
