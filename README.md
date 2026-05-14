@@ -58,8 +58,8 @@ pnpm --filter @etsy-oi/api dev
 pnpm --filter @etsy-oi/web dev
 ```
 
-Open `http://127.0.0.1:3000`. The Vite dev server proxies `/api/*` to the Fastify API on `http://127.0.0.1:4000`.
-The API binds to `127.0.0.1` by default; override with `HOST` only when the runtime permits binding another interface.
+Open `http://127.0.0.1:3000` locally or `http://<SERVER-IP>:3000` from another device on the network. The Vite dev server proxies `/api/*` to the Fastify API on `http://127.0.0.1:4000`.
+The default dev setup now binds the web app and API to `0.0.0.0`; if you want to restrict access again, set `HOST=127.0.0.1` before starting the API and pass `--host 127.0.0.1` to Vite.
 
 The current MVP web slice supports:
 

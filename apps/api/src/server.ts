@@ -13,7 +13,7 @@ import { AnalysisStore, normalizedInputFor, refreshOfId } from "./analysis-store
 import { keywordResult, listingResult, resultFor, toAnalysisDto } from "./demo-analysis.js";
 
 const port = Number(process.env.PORT ?? 4000);
-const host = process.env.HOST ?? "127.0.0.1";
+const host = process.env.HOST ?? "0.0.0.0";
 
 function canonicalizeKeyword(term: string): string {
   return term
