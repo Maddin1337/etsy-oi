@@ -199,6 +199,15 @@ describe("api v1 analysis behavior", () => {
     expect(persisted.statusCode).toBe(200);
     expect(persisted.json().analysis.id).toBe(analysisId);
     expect(["queued", "running", "partial", "completed"]).toContain(persisted.json().analysis.status);
+    expect(persisted.json().workflow.capture_jobs).toHaveLength(1);
+    expect(["queued", "running", "partial", "completed"]).toContain(persisted.json().workflow.capture_jobs[0].status);
+    expect(persisted.json().workflow.capture_jobs[0]).toMatchObject({
+      analysis_id: analysisId,
+      job_type: "listing_capture",
+      target_type: "listing",
+      capture_reason: "initial",
+      worker_queue: "collector-listing"
+    });
   });
 
   it("hält Refresh idempotent und markiert die Originalanalyse als aktualisiert", async () => {

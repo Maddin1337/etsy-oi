@@ -16,6 +16,22 @@ type AnalysisRecord = PersistedAnalysisRow &
     idempotency_key: string;
   };
 
+export type CaptureJobRecord = {
+  id: string;
+  analysis_id: string;
+  status: "queued" | "running" | "completed" | "partial" | "failed" | "blocked" | "validation_failed";
+  job_type: "search_capture" | "listing_capture" | "shop_capture" | "reprocess";
+  target_type: "keyword" | "listing" | "shop" | "url";
+  target_ref: string;
+  source_url: string;
+  capture_reason: "initial" | "refresh" | "debug" | "canary" | "rebuild" | "keyword_analysis";
+  worker_queue: string;
+  attempt_count: number;
+  started_at: Date | null;
+  finished_at: Date | null;
+  created_at: Date;
+};
+
 type CaptureJobReason = "initial" | "refresh" | "keyword_analysis";
 
 export type CreateKeywordInput = {
@@ -242,6 +258,36 @@ export class AnalysisStore {
       left join listings l on l.id = a.subject_listing_id
       order by a.created_at desc
     `);
+    return result.rows;
+  }
+
+  async listCaptureJobs(externalAnalysisId: string): Promise<CaptureJobRecord[]> {
+    const internalId = parseAnalysisId(externalAnalysisId);
+    if (!internalId) return [];
+
+    const result = await this.pool.query<CaptureJobRecord>(
+      `
+        select
+          id::text,
+          analysis_id::text,
+          status,
+          job_type,
+          target_type,
+          target_ref,
+          source_url,
+          capture_reason,
+          worker_queue,
+          attempt_count,
+          started_at,
+          finished_at,
+          created_at
+        from capture_jobs
+        where analysis_id = $1::uuid
+        order by created_at asc
+      `,
+      [internalId]
+    );
+
     return result.rows;
   }
 

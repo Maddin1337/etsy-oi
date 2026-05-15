@@ -335,6 +335,46 @@ export const ListingResultSummarySchema = z.object({
 });
 export type ListingResultSummary = z.infer<typeof ListingResultSummarySchema>;
 
+export const CaptureJobStatusSchema = z.enum([
+  "queued",
+  "running",
+  "completed",
+  "partial",
+  "failed",
+  "blocked",
+  "validation_failed"
+]);
+export type CaptureJobStatus = z.infer<typeof CaptureJobStatusSchema>;
+
+export const CaptureJobDtoSchema = z.object({
+  id: z.string(),
+  analysis_id: z.string(),
+  status: CaptureJobStatusSchema,
+  job_type: CaptureJobTypeSchema,
+  target_type: TargetTypeSchema,
+  target_ref: z.string(),
+  source_url: z.string(),
+  capture_reason: CaptureReasonSchema,
+  worker_queue: z.string(),
+  attempt_count: z.number().int().nonnegative(),
+  started_at: z.string().datetime().nullable().optional(),
+  finished_at: z.string().datetime().nullable().optional(),
+  created_at: z.string().datetime()
+});
+export type CaptureJobDto = z.infer<typeof CaptureJobDtoSchema>;
+
+export const AnalysisWorkflowSchema = z.object({
+  capture_jobs: z.array(CaptureJobDtoSchema)
+});
+export type AnalysisWorkflow = z.infer<typeof AnalysisWorkflowSchema>;
+
+export const AnalysisDetailResponseSchema = z.object({
+  analysis: AnalysisDtoSchema,
+  result: z.union([KeywordResultSummarySchema, ListingResultSummarySchema]).nullable(),
+  workflow: AnalysisWorkflowSchema
+});
+export type AnalysisDetailResponse = z.infer<typeof AnalysisDetailResponseSchema>;
+
 export const KeywordAnalysisWorkflowInputSchema = z.object({
   analysis_id: z.string(),
   workspace_id: z.string(),

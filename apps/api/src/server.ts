@@ -6,11 +6,17 @@ import {
   CreateListingAnalysisRequestSchema,
   PrioritySchema,
   ValidationFailure,
-  type CreateAnalysisResponse,
   type Priority
 } from "@etsy-oi/shared-types";
 import { AnalysisStore, normalizedInputFor, refreshOfId } from "./analysis-store.js";
-import { keywordResult, listingResult, resultFor, toAnalysisDto } from "./demo-analysis.js";
+import { keywordResult, listingResult } from "./demo-analysis.js";
+import {
+  buildAnalysisDetailResponse,
+  buildAnalysisListResponse,
+  buildCancelAnalysisResponse,
+  buildCreateAnalysisResponse,
+  buildRefreshAnalysisResponse
+} from "./analysis-read-model.js";
 
 const port = Number(process.env.PORT ?? 4000);
 const host = process.env.HOST ?? "0.0.0.0";
@@ -108,8 +114,8 @@ export function buildServer() {
       refresh_policy: parsed.refresh_policy
     });
 
-    const response: CreateAnalysisResponse = {
-      analysis: toAnalysisDto(created.record, created.record),
+    const response = buildCreateAnalysisResponse({
+      analysis: created.record,
       normalized_input: {
         term: normalizedTerm,
         locale: parsed.locale,
@@ -119,7 +125,7 @@ export function buildServer() {
         key: created.idempotencyKey,
         replayed: created.replayed
       }
-    };
+    });
 
     return reply.code(202).send(response);
   });
@@ -132,8 +138,8 @@ export function buildServer() {
       refresh_policy: parsed.refresh_policy
     });
 
-    const response: CreateAnalysisResponse = {
-      analysis: toAnalysisDto(created.record, created.record),
+    const response = buildCreateAnalysisResponse({
+      analysis: created.record,
       normalized_input: {
         listing_url: listingUrl,
         contract_version: CONTRACT_VERSION
@@ -142,7 +148,7 @@ export function buildServer() {
         key: created.idempotencyKey,
         replayed: created.replayed
       }
-    };
+    });
 
     return reply.code(202).send(response);
   });
@@ -150,19 +156,13 @@ export function buildServer() {
   app.get<{ Params: { analysis_id: string } }>("/v1/analyses/:analysis_id", async (request, reply) => {
     const record = await store.getByExternalId(request.params.analysis_id);
     if (!record) return reply.code(404).send(notFoundMessage(request.params.analysis_id));
-    return {
-      analysis: toAnalysisDto(record, record),
-      result: resultFor(record, record)
-    };
+
+    return buildAnalysisDetailResponse(record, await store.listCaptureJobs(request.params.analysis_id));
   });
 
   app.get("/v1/analyses", async (request) => {
     const records = await store.list();
-    return {
-      items: records.map((record) => toAnalysisDto(record, record)),
-      next_cursor: null,
-      filters: request.query
-    };
+    return buildAnalysisListResponse(records, request.query);
   });
 
   app.post<{ Params: { analysis_id: string }; Body: { priority?: Priority } }>(
@@ -173,28 +173,28 @@ export function buildServer() {
       const refreshed = await store.refresh(request.params.analysis_id, priority);
       if (!refreshed) return reply.code(404).send(notFoundMessage(request.params.analysis_id));
 
-      return reply.code(202).send({
-        analysis: toAnalysisDto(refreshed.record, refreshed.record),
-        normalized_input: {
-          ...normalizedInputFor(refreshed.record),
-          contract_version: CONTRACT_VERSION
-        },
-        idempotency: {
-          key: refreshed.idempotencyKey,
-          replayed: refreshed.replayed
-        },
-        refresh_of_analysis_id: refreshOfId(refreshed.record) ?? request.params.analysis_id,
-        priority
-      });
+      return reply.code(202).send(
+        buildRefreshAnalysisResponse({
+          analysis: refreshed.record,
+          normalized_input: {
+            ...normalizedInputFor(refreshed.record),
+            contract_version: CONTRACT_VERSION
+          },
+          idempotency: {
+            key: refreshed.idempotencyKey,
+            replayed: refreshed.replayed
+          },
+          refresh_of_analysis_id: refreshOfId(refreshed.record) ?? request.params.analysis_id,
+          priority
+        })
+      );
     }
   );
 
   app.post<{ Params: { analysis_id: string } }>("/v1/analyses/:analysis_id/cancel", async (request, reply) => {
     const record = await store.cancel(request.params.analysis_id);
     if (!record) return reply.code(404).send(notFoundMessage(request.params.analysis_id));
-    return {
-      analysis: toAnalysisDto(record, record)
-    };
+    return buildCancelAnalysisResponse(record);
   });
 
   app.get<{ Params: { keyword_id: string } }>("/v1/keywords/:keyword_id/latest-analysis", async (request) => ({
