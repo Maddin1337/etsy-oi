@@ -1,12 +1,8 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "outDir": "dist",
-    "rootDir": "src",
-    "paths": {
-      "@etsy-oi/shared-types": ["packages/shared-types/dist/index.d.ts"],
-      "@etsy-oi/db": ["packages/db/dist/index.d.ts"]
-    }
+    "baseUrl": "../..",
+    "outDir": "dist"
   },
   "include": ["src/**/*.ts"],
   "exclude": ["dist"]

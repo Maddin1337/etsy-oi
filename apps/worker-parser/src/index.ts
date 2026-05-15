@@ -1,15 +1,20 @@
-import { CONTRACT_VERSION } from "@etsy-oi/shared-types";
+export {
+  ParserStore,
+  describeParserWorker,
+  getParserConfig,
+  processNextParserJob,
+  type ParserRuntimeConfig,
+  type ProcessedParserJob
+} from "@etsy-oi/pipeline";
 
-export const PARSER_PIPELINE_ORDER = ["json_ld", "embedded_json", "network", "dom"] as const;
-
-export function describeParserWorker() {
-  return {
-    worker: "parser",
-    contract_version: CONTRACT_VERSION,
-    extraction_order: PARSER_PIPELINE_ORDER
-  };
-}
+import { describeParserWorker, processNextParserJob } from "@etsy-oi/pipeline";
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  console.log(JSON.stringify(describeParserWorker(), null, 2));
+  const mode = process.argv[2] ?? "describe";
+  if (mode === "run-once") {
+    const result = await processNextParserJob();
+    console.log(JSON.stringify({ processed: Boolean(result), result }, null, 2));
+  } else {
+    console.log(JSON.stringify(describeParserWorker(), null, 2));
+  }
 }

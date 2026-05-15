@@ -99,7 +99,9 @@ describe("analysis read model", () => {
   });
 
   it("liefert Listen- und Cancel-Responses aus derselben DTO-Ableitung", () => {
-    const listResponse = buildAnalysisListResponse([makeRow()], { type: "listing" }, createdAt.getTime() + 5000);
+    const listResponse = buildAnalysisListResponse([
+      makeRow({ status: "completed", started_at: createdAt, finished_at: createdAt })
+    ], { type: "listing" }, createdAt.getTime() + 5000);
     const cancelResponse = buildCancelAnalysisResponse(makeRow({ status: "cancelled", finished_at: createdAt }), createdAt.getTime() + 5000);
 
     expect(listResponse.items).toHaveLength(1);
@@ -130,7 +132,7 @@ describe("analysis read model", () => {
 
   it("leitet bei fortgeschrittener Demo-Analyse einen abgeschlossenen Capture-Job-Status ab", () => {
     const response = buildAnalysisDetailResponse(
-      makeRow(),
+      makeRow({ status: "completed", started_at: createdAt, finished_at: createdAt }),
       [makeJob()],
       createdAt.getTime() + 5000
     );
@@ -151,6 +153,9 @@ describe("analysis read model", () => {
     const response = buildAnalysisDetailResponse(
       makeRow({
         analysis_type: "keyword",
+        status: "partial",
+        started_at: createdAt,
+        finished_at: createdAt,
         term: "mid century wandkunst",
         listing_url: null
       }),
@@ -178,7 +183,7 @@ describe("analysis read model", () => {
 
   it("respektiert terminale Capture-Job-Status aus der Persistenz", () => {
     const response = buildAnalysisDetailResponse(
-      makeRow({ term: "fail listing", listing_url: null }),
+      makeRow({ status: "failed", started_at: createdAt, finished_at: createdAt, error_code: "internal_error", term: "fail listing", listing_url: null }),
       [makeJob({ status: "blocked" })],
       createdAt.getTime() + 5000
     );

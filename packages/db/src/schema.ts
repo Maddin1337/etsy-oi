@@ -77,6 +77,13 @@ export const artifactKindEnum = pgEnum("artifact_kind", [
 ]);
 export const retentionClassEnum = pgEnum("retention_class", ["short", "standard", "extended"]);
 export const subjectTypeEnum = pgEnum("subject_type", ["keyword", "listing", "shop"]);
+export const snapshotValidationStatusEnum = pgEnum("snapshot_validation_status", [
+  "valid",
+  "partial",
+  "invalid",
+  "blocked",
+  "parser_drift"
+]);
 
 const timestamps = {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
@@ -237,6 +244,69 @@ export const rawArtifacts = pgTable("raw_artifacts", {
   captureJobIdx: index("raw_artifacts_capture_job_id_idx").on(table.captureJobId)
 }));
 
+export const listingSnapshots = pgTable("listing_snapshots", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  captureJobId: uuid("capture_job_id").notNull().references(() => captureJobs.id),
+  analysisId: uuid("analysis_id").notNull().references(() => analyses.id),
+  listingId: uuid("listing_id").references(() => listings.id),
+  snapshotJson: jsonb("snapshot_json").notNull(),
+  validatorStatus: snapshotValidationStatusEnum("validator_status").notNull(),
+  validationErrors: jsonb("validation_errors").notNull().default(sql`'[]'::jsonb`),
+  parserVersion: text("parser_version").notNull(),
+  capturedAt: timestamp("captured_at", { withTimezone: true }).notNull(),
+  dedupeKey: text("dedupe_key").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
+}, (table) => ({
+  captureJobUnique: unique("listing_snapshots_capture_job_unique").on(table.captureJobId),
+  analysisIdx: index("listing_snapshots_analysis_id_idx").on(table.analysisId),
+  listingIdx: index("listing_snapshots_listing_id_idx").on(table.listingId),
+  dedupeUnique: unique("listing_snapshots_dedupe_key_unique").on(table.dedupeKey)
+}));
+
+export const searchSnapshots = pgTable("search_snapshots", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  captureJobId: uuid("capture_job_id").notNull().references(() => captureJobs.id),
+  analysisId: uuid("analysis_id").notNull().references(() => analyses.id),
+  keywordId: uuid("keyword_id").references(() => keywords.id),
+  queryTerm: text("query_term").notNull(),
+  locale: text("locale").notNull(),
+  pageNumber: integer("page_number").notNull(),
+  totalResultsEstimate: integer("total_results_estimate"),
+  snapshotJson: jsonb("snapshot_json").notNull(),
+  validatorStatus: snapshotValidationStatusEnum("validator_status").notNull(),
+  validationErrors: jsonb("validation_errors").notNull().default(sql`'[]'::jsonb`),
+  parserVersion: text("parser_version").notNull(),
+  capturedAt: timestamp("captured_at", { withTimezone: true }).notNull(),
+  dedupeKey: text("dedupe_key").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
+}, (table) => ({
+  captureJobUnique: unique("search_snapshots_capture_job_unique").on(table.captureJobId),
+  analysisIdx: index("search_snapshots_analysis_id_idx").on(table.analysisId),
+  keywordIdx: index("search_snapshots_keyword_id_idx").on(table.keywordId),
+  dedupeUnique: unique("search_snapshots_dedupe_key_unique").on(table.dedupeKey)
+}));
+
+export const searchSnapshotResults = pgTable("search_snapshot_results", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  searchSnapshotId: uuid("search_snapshot_id").notNull().references(() => searchSnapshots.id),
+  absoluteRank: integer("absolute_rank").notNull(),
+  rankPosition: integer("rank_position").notNull(),
+  pageNumber: integer("page_number").notNull(),
+  listingId: uuid("listing_id").references(() => listings.id),
+  etsyListingId: text("etsy_listing_id"),
+  listingUrl: text("listing_url").notNull(),
+  adFlag: boolean("ad_flag").notNull().default(false),
+  title: text("title"),
+  priceAmountMinor: integer("price_amount_minor"),
+  priceCurrencyCode: char("price_currency_code", { length: 3 }),
+  reviewCount: integer("review_count"),
+  averageRating: numeric("average_rating", { precision: 3, scale: 2 }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
+}, (table) => ({
+  snapshotIdx: index("search_snapshot_results_snapshot_id_idx").on(table.searchSnapshotId),
+  snapshotRankUnique: unique("search_snapshot_results_snapshot_rank_unique").on(table.searchSnapshotId, table.absoluteRank)
+}));
+
 export const scoreVersions = pgTable("score_versions", {
   id: uuid("id").primaryKey().defaultRandom(),
   scoreKey: text("score_key").notNull(),
@@ -264,4 +334,22 @@ export const currentEntityScores = pgTable("current_entity_scores", {
 }, (table) => ({
   currentScoreUnique: unique("current_entity_scores_subject_unique").on(table.subjectType, table.subjectId),
   scoreVersionIdx: index("current_entity_scores_score_version_id_idx").on(table.scoreVersionId)
+}));
+
+export const scoreSnapshots = pgTable("score_snapshots", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  analysisId: uuid("analysis_id").references(() => analyses.id),
+  subjectType: subjectTypeEnum("subject_type").notNull(),
+  subjectId: uuid("subject_id").notNull(),
+  scoreVersionId: uuid("score_version_id").notNull().references(() => scoreVersions.id),
+  scoresJson: jsonb("scores_json").notNull(),
+  observedSignalCount: integer("observed_signal_count").notNull(),
+  estimatedSignalCount: integer("estimated_signal_count").notNull(),
+  evidenceJson: jsonb("evidence_json").notNull().default(sql`'[]'::jsonb`),
+  calculationTrace: jsonb("calculation_trace").notNull().default(sql`'{}'::jsonb`),
+  capturedAt: timestamp("captured_at", { withTimezone: true }).defaultNow().notNull(),
+  snapshotDedupeKey: text("snapshot_dedupe_key").notNull()
+}, (table) => ({
+  subjectIdx: index("score_snapshots_subject_idx").on(table.subjectType, table.subjectId, table.capturedAt),
+  dedupeUnique: unique("score_snapshots_dedupe_key_unique").on(table.snapshotDedupeKey)
 }));

@@ -21,6 +21,7 @@
       "@etsy-oi/extractors": ["packages/extractors/src/index.ts"],
       "@etsy-oi/validators": ["packages/validators/src/index.ts"],
       "@etsy-oi/scoring": ["packages/scoring/src/index.ts"],
+      "@etsy-oi/pipeline": ["packages/pipeline/src/index.ts"],
       "@etsy-oi/telemetry": ["packages/telemetry/src/index.ts"]
     }
   }

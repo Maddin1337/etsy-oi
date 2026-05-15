@@ -12,6 +12,7 @@ CREATE TYPE failure_class AS ENUM ('network_error', 'timeout', 'blocked_captcha'
 CREATE TYPE artifact_kind AS ENUM ('html', 'screenshot', 'jsonld', 'embedded_json', 'network_response', 'parser_io');
 CREATE TYPE retention_class AS ENUM ('short', 'standard', 'extended');
 CREATE TYPE subject_type AS ENUM ('keyword', 'listing', 'shop');
+CREATE TYPE snapshot_validation_status AS ENUM ('valid', 'partial', 'invalid', 'blocked', 'parser_drift');
 
 CREATE TABLE users (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -156,6 +157,64 @@ CREATE TABLE raw_artifacts (
 );
 CREATE INDEX raw_artifacts_capture_job_id_idx ON raw_artifacts(capture_job_id);
 
+CREATE TABLE listing_snapshots (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  capture_job_id UUID NOT NULL REFERENCES capture_jobs(id),
+  analysis_id UUID NOT NULL REFERENCES analyses(id),
+  listing_id UUID REFERENCES listings(id),
+  snapshot_json JSONB NOT NULL,
+  validator_status snapshot_validation_status NOT NULL,
+  validation_errors JSONB NOT NULL DEFAULT '[]'::jsonb,
+  parser_version TEXT NOT NULL,
+  captured_at TIMESTAMPTZ NOT NULL,
+  dedupe_key TEXT NOT NULL UNIQUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT listing_snapshots_capture_job_unique UNIQUE (capture_job_id)
+);
+CREATE INDEX listing_snapshots_analysis_id_idx ON listing_snapshots(analysis_id);
+CREATE INDEX listing_snapshots_listing_id_idx ON listing_snapshots(listing_id);
+
+CREATE TABLE search_snapshots (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  capture_job_id UUID NOT NULL REFERENCES capture_jobs(id),
+  analysis_id UUID NOT NULL REFERENCES analyses(id),
+  keyword_id UUID REFERENCES keywords(id),
+  query_term TEXT NOT NULL,
+  locale TEXT NOT NULL,
+  page_number INT NOT NULL,
+  total_results_estimate INT,
+  snapshot_json JSONB NOT NULL,
+  validator_status snapshot_validation_status NOT NULL,
+  validation_errors JSONB NOT NULL DEFAULT '[]'::jsonb,
+  parser_version TEXT NOT NULL,
+  captured_at TIMESTAMPTZ NOT NULL,
+  dedupe_key TEXT NOT NULL UNIQUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT search_snapshots_capture_job_unique UNIQUE (capture_job_id)
+);
+CREATE INDEX search_snapshots_analysis_id_idx ON search_snapshots(analysis_id);
+CREATE INDEX search_snapshots_keyword_id_idx ON search_snapshots(keyword_id);
+
+CREATE TABLE search_snapshot_results (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  search_snapshot_id UUID NOT NULL REFERENCES search_snapshots(id),
+  absolute_rank INT NOT NULL,
+  rank_position INT NOT NULL,
+  page_number INT NOT NULL,
+  listing_id UUID REFERENCES listings(id),
+  etsy_listing_id TEXT,
+  listing_url TEXT NOT NULL,
+  ad_flag BOOLEAN NOT NULL DEFAULT false,
+  title TEXT,
+  price_amount_minor INT,
+  price_currency_code CHAR(3),
+  review_count INT,
+  average_rating NUMERIC(3,2),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT search_snapshot_results_snapshot_rank_unique UNIQUE (search_snapshot_id, absolute_rank)
+);
+CREATE INDEX search_snapshot_results_snapshot_id_idx ON search_snapshot_results(search_snapshot_id);
+
 CREATE TABLE score_versions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   score_key TEXT NOT NULL,
@@ -191,3 +250,19 @@ CREATE TABLE current_entity_scores (
   CONSTRAINT current_entity_scores_subject_unique UNIQUE (subject_type, subject_id)
 );
 CREATE INDEX current_entity_scores_score_version_id_idx ON current_entity_scores(score_version_id);
+
+CREATE TABLE score_snapshots (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  analysis_id UUID REFERENCES analyses(id),
+  subject_type subject_type NOT NULL,
+  subject_id UUID NOT NULL,
+  score_version_id UUID NOT NULL REFERENCES score_versions(id),
+  scores_json JSONB NOT NULL,
+  observed_signal_count INT NOT NULL,
+  estimated_signal_count INT NOT NULL,
+  evidence_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+  calculation_trace JSONB NOT NULL DEFAULT '{}'::jsonb,
+  captured_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  snapshot_dedupe_key TEXT NOT NULL UNIQUE
+);
+CREATE INDEX score_snapshots_subject_idx ON score_snapshots(subject_type, subject_id, captured_at);

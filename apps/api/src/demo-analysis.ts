@@ -74,6 +74,7 @@ export function progressFor(type: "keyword" | "listing", status: AnalysisStatus)
 
 export function deriveAnalysisStatus(row: PersistedAnalysisRow, input: AnalysisSubjectInput, now = Date.now()): AnalysisStatus {
   if (row.status === "cancelled" || row.status === "refreshed") return row.status;
+  if (row.status !== "queued") return row.status;
   if (input.term?.includes("fail") || input.listing_url?.includes("fail")) return "failed";
   if (input.term?.includes("stale") || input.listing_url?.includes("stale")) return "stale";
 

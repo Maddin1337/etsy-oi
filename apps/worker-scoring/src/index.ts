@@ -1,13 +1,20 @@
-import { ACTIVE_SCORE_KEY, CONTRACT_VERSION } from "@etsy-oi/shared-types";
+export {
+  ScoringStore,
+  describeScoringWorker,
+  getScoringConfig,
+  processNextScoringJob,
+  type ProcessedScoreJob,
+  type ScoringRuntimeConfig
+} from "@etsy-oi/pipeline";
 
-export function describeScoringWorker() {
-  return {
-    worker: "scoring",
-    contract_version: CONTRACT_VERSION,
-    active_score_key: ACTIVE_SCORE_KEY
-  };
-}
+import { describeScoringWorker, processNextScoringJob } from "@etsy-oi/pipeline";
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  console.log(JSON.stringify(describeScoringWorker(), null, 2));
+  const mode = process.argv[2] ?? "describe";
+  if (mode === "run-once") {
+    const result = await processNextScoringJob();
+    console.log(JSON.stringify({ processed: Boolean(result), result }, null, 2));
+  } else {
+    console.log(JSON.stringify(describeScoringWorker(), null, 2));
+  }
 }

@@ -8,6 +8,11 @@ import {
   ValidationFailure,
   type Priority
 } from "@etsy-oi/shared-types";
+import {
+  buildKeywordResultSummary,
+  buildListingResultSummary,
+  materializeAnalysis
+} from "@etsy-oi/pipeline";
 import { AnalysisStore, normalizedInputFor, refreshOfId } from "./analysis-store.js";
 import { keywordResult, listingResult } from "./demo-analysis.js";
 import {
@@ -62,6 +67,7 @@ const RefreshAnalysisRequestSchema = z.object({
 export function buildServer() {
   const app = Fastify({ logger: true });
   const store = new AnalysisStore();
+  const databaseUrl = process.env.DATABASE_URL ?? "postgresql://root@/etsy_oi?host=/var/run/postgresql";
 
   app.addHook("onClose", async () => {
     await store.close();
@@ -157,7 +163,19 @@ export function buildServer() {
     const record = await store.getByExternalId(request.params.analysis_id);
     if (!record) return reply.code(404).send(notFoundMessage(request.params.analysis_id));
 
-    return buildAnalysisDetailResponse(record, await store.listCaptureJobs(request.params.analysis_id));
+    await materializeAnalysis(record.id, { databaseUrl });
+    const refreshedRecord = await store.getByExternalId(request.params.analysis_id);
+    if (!refreshedRecord) return reply.code(404).send(notFoundMessage(request.params.analysis_id));
+
+    const result = refreshedRecord.analysis_type === "keyword"
+      ? await buildKeywordResultSummary(databaseUrl, refreshedRecord.id)
+      : await buildListingResultSummary(databaseUrl, refreshedRecord.id);
+
+    return buildAnalysisDetailResponse(
+      refreshedRecord,
+      await store.listCaptureJobs(request.params.analysis_id),
+      result
+    );
   });
 
   app.get("/v1/analyses", async (request) => {

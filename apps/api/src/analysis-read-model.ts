@@ -52,29 +52,19 @@ type RefreshAnalysisEnvelope = CreateAnalysisEnvelope & {
   priority: string;
 };
 
-function deriveAnalysisStatus(row: PersistedAnalysisRow, input: AnalysisSubjectInput, now = Date.now()): AnalysisStatus {
-  if (row.status === "cancelled" || row.status === "refreshed") return row.status;
-  if (input.term?.includes("fail") || input.listing_url?.includes("fail")) return "failed";
-  if (input.term?.includes("stale") || input.listing_url?.includes("stale")) return "stale";
-
-  const ageMs = Math.max(0, now - row.created_at.getTime());
-  if (ageMs < RUNNING_AFTER_MS) return "queued";
-  if (ageMs < PARTIAL_AFTER_MS) return "running";
-  if (ageMs < COMPLETED_AFTER_MS) return "partial";
-  return "completed";
+function deriveAnalysisStatus(row: PersistedAnalysisRow): AnalysisStatus {
+  return row.status;
 }
 
-function analysisFinishedAt(row: PersistedAnalysisRow): string {
-  return row.finished_at?.toISOString() ?? new Date(row.created_at.getTime() + COMPLETED_AFTER_MS).toISOString();
+function analysisFinishedAt(row: PersistedAnalysisRow): string | null {
+  return row.finished_at?.toISOString() ?? null;
 }
 
 export function toAnalysisDto(row: PersistedAnalysisRow, input: AnalysisSubjectInput, now = Date.now()): AnalysisDto {
   const type = row.analysis_type;
-  const status = deriveAnalysisStatus(row, input, now);
-  const startedAt = status === "queued" ? null : row.started_at?.toISOString() ?? row.created_at.toISOString();
-  const finishedAt = ["completed", "partial", "failed", "stale", "refreshed", "cancelled"].includes(status)
-    ? analysisFinishedAt(row)
-    : null;
+  const status = deriveAnalysisStatus(row);
+  const startedAt = row.started_at?.toISOString() ?? null;
+  const finishedAt = analysisFinishedAt(row);
 
   return {
     id: formatAnalysisId(row.id),
@@ -88,7 +78,7 @@ export function toAnalysisDto(row: PersistedAnalysisRow, input: AnalysisSubjectI
     stale_at: new Date(row.created_at.getTime() + DEMO_STALE_WINDOW_MS).toISOString(),
     progress: progressFor(type, status),
     error_code: status === "failed" ? row.error_code ?? "internal_error" : null,
-    error_message: status === "failed" ? "Deterministischer Demo-Fehler wurde durch die Eingabe ausgelöst." : null,
+    error_message: status === "failed" ? "Analyse wurde mit Fehler beendet." : null,
     started_at: startedAt,
     finished_at: finishedAt
   };
@@ -96,8 +86,13 @@ export function toAnalysisDto(row: PersistedAnalysisRow, input: AnalysisSubjectI
 
 function resultForAnalysis(
   analysis: AnalysisDto,
-  input: AnalysisSubjectInput
+  input: AnalysisSubjectInput,
+  override?: KeywordResultSummary | ListingResultSummary | null
 ): KeywordResultSummary | ListingResultSummary | null {
+  if (override !== undefined) {
+    return override;
+  }
+
   if (!["partial", "completed", "stale"].includes(analysis.status)) {
     return null;
   }
@@ -160,12 +155,15 @@ function toCaptureJobDto(job: CaptureJobRecord, analysis: AnalysisDto): CaptureJ
 export function buildAnalysisDetailResponse(
   row: AnalysisReadModelInput,
   captureJobs: CaptureJobRecord[],
+  resultOverrideOrNow?: KeywordResultSummary | ListingResultSummary | null | number,
   now = Date.now()
 ): AnalysisDetailResponse {
-  const analysis = toAnalysisDto(row, row, now);
+  const resultOverride = typeof resultOverrideOrNow === "number" ? undefined : resultOverrideOrNow;
+  const effectiveNow = typeof resultOverrideOrNow === "number" ? resultOverrideOrNow : now;
+  const analysis = toAnalysisDto(row, row, effectiveNow);
   const response: AnalysisDetailResponse = {
     analysis,
-    result: resultForAnalysis(analysis, row),
+    result: resultForAnalysis(analysis, row, resultOverride),
     workflow: {
       capture_jobs: captureJobs.map((job) => toCaptureJobDto(job, analysis))
     }

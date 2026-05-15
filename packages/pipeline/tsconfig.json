@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": "../..",
+    "outDir": "dist",
+    "rootDir": "src",
+    "paths": {
+      "@etsy-oi/shared-types": ["packages/shared-types/dist/index.d.ts"],
+      "@etsy-oi/db": ["packages/db/dist/index.d.ts"],
+      "@etsy-oi/extractors": ["packages/extractors/dist/index.d.ts"],
+      "@etsy-oi/validators": ["packages/validators/dist/index.d.ts"],
+      "@etsy-oi/scoring": ["packages/scoring/dist/index.d.ts"]
+    }
+  },
+  "include": ["src/**/*.ts"]
+}

@@ -13,9 +13,10 @@
     "clean": "rm -rf dist coverage"
   },
   "dependencies": {
+    "@etsy-oi/extractors": "workspace:*",
+    "@etsy-oi/pipeline": "workspace:*",
     "@etsy-oi/shared-types": "workspace:*",
-    "@etsy-oi/validators": "workspace:*",
-    "@etsy-oi/extractors": "workspace:*"
+    "@etsy-oi/validators": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.15.17",

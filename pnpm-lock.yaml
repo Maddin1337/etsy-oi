@@ -51,6 +51,9 @@ importers:
       '@etsy-oi/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@etsy-oi/pipeline':
+        specifier: workspace:*
+        version: link:../../packages/pipeline
       '@etsy-oi/shared-types':
         specifier: workspace:*
         version: link:../../packages/shared-types
@@ -119,13 +122,22 @@ importers:
 
   apps/worker-collector:
     dependencies:
+      '@etsy-oi/pipeline':
+        specifier: workspace:*
+        version: link:../../packages/pipeline
       '@etsy-oi/shared-types':
         specifier: workspace:*
         version: link:../../packages/shared-types
+      pg:
+        specifier: ^8.15.6
+        version: 8.20.0
     devDependencies:
       '@types/node':
         specifier: ^22.15.17
         version: 22.19.19
+      '@types/pg':
+        specifier: ^8.11.14
+        version: 8.20.0
       tsx:
         specifier: ^4.19.4
         version: 4.21.0
@@ -141,6 +153,9 @@ importers:
       '@etsy-oi/extractors':
         specifier: workspace:*
         version: link:../../packages/extractors
+      '@etsy-oi/pipeline':
+        specifier: workspace:*
+        version: link:../../packages/pipeline
       '@etsy-oi/shared-types':
         specifier: workspace:*
         version: link:../../packages/shared-types
@@ -163,6 +178,9 @@ importers:
 
   apps/worker-scoring:
     dependencies:
+      '@etsy-oi/pipeline':
+        specifier: workspace:*
+        version: link:../../packages/pipeline
       '@etsy-oi/scoring':
         specifier: workspace:*
         version: link:../../packages/scoring
@@ -208,6 +226,46 @@ importers:
         specifier: workspace:*
         version: link:../shared-types
     devDependencies:
+      typescript:
+        specifier: ^5.8.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.1.3
+        version: 3.2.4(@types/node@22.19.19)(tsx@4.21.0)
+
+  packages/pipeline:
+    dependencies:
+      '@etsy-oi/db':
+        specifier: workspace:*
+        version: link:../db
+      '@etsy-oi/extractors':
+        specifier: workspace:*
+        version: link:../extractors
+      '@etsy-oi/scoring':
+        specifier: workspace:*
+        version: link:../scoring
+      '@etsy-oi/shared-types':
+        specifier: workspace:*
+        version: link:../shared-types
+      '@etsy-oi/validators':
+        specifier: workspace:*
+        version: link:../validators
+      '@playwright/test':
+        specifier: ^1.52.0
+        version: 1.60.0
+      pg:
+        specifier: ^8.15.6
+        version: 8.20.0
+    devDependencies:
+      '@types/node':
+        specifier: ^22.15.17
+        version: 22.19.19
+      '@types/pg':
+        specifier: ^8.11.14
+        version: 8.20.0
+      tsx:
+        specifier: ^4.19.4
+        version: 4.21.0
       typescript:
         specifier: ^5.8.3
         version: 5.9.3

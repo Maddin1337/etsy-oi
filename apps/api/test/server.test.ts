@@ -198,15 +198,64 @@ describe("api v1 analysis behavior", () => {
 
     expect(persisted.statusCode).toBe(200);
     expect(persisted.json().analysis.id).toBe(analysisId);
-    expect(["queued", "running", "partial", "completed"]).toContain(persisted.json().analysis.status);
+    expect(persisted.json().analysis.status).toBe("partial");
     expect(persisted.json().workflow.capture_jobs).toHaveLength(1);
-    expect(["queued", "running", "partial", "completed"]).toContain(persisted.json().workflow.capture_jobs[0].status);
+    expect(persisted.json().workflow.capture_jobs[0].status).toBe("partial");
     expect(persisted.json().workflow.capture_jobs[0]).toMatchObject({
       analysis_id: analysisId,
       job_type: "listing_capture",
       target_type: "listing",
       capture_reason: "initial",
       worker_queue: "collector-listing"
+    });
+    expect(persisted.json().result).toMatchObject({
+      type: "listing",
+      status: "partial",
+      listing: {
+        title: "Personalisierte Geburtsblumen-Halskette"
+      },
+      snapshot: {
+        price: { amount: "32.50", currency: "USD" },
+        review_count: 881,
+        average_rating: 4.8,
+        image_count: 7
+      }
+    });
+  });
+
+  it("materialisiert eine Keyword-Analyse beim ersten Detail-Read über die echte Pipeline", async () => {
+    app = await makeServer();
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/analyses/keyword",
+      payload: {
+        term: "mid century wandkunst",
+        locale: "en-US",
+        refresh_policy: "if_stale"
+      }
+    });
+
+    const analysisId = created.json().analysis.id;
+    const detail = await app.inject({ method: "GET", url: `/v1/analyses/${analysisId}` });
+
+    expect(detail.statusCode).toBe(200);
+    expect(detail.json().analysis.status).toBe("completed");
+    expect(detail.json().result).toMatchObject({
+      type: "keyword",
+      status: "completed",
+      keyword: {
+        term: "mid century wandkunst"
+      },
+      market_summary: {
+        total_results_estimate: 12453,
+        sampled_listing_count: 6,
+        median_price: { amount: "26.00", currency: "USD" },
+        ads_share: 0.17
+      }
+    });
+    expect(detail.json().result.top_listings[0]).toMatchObject({
+      rank_position: 1,
+      title: "Mid-Century-Wandkunst-Print"
     });
   });
 

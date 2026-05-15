@@ -13,10 +13,13 @@
     "clean": "rm -rf dist coverage"
   },
   "dependencies": {
-    "@etsy-oi/shared-types": "workspace:*"
+    "@etsy-oi/pipeline": "workspace:*",
+    "@etsy-oi/shared-types": "workspace:*",
+    "pg": "^8.15.6"
   },
   "devDependencies": {
     "@types/node": "^22.15.17",
+    "@types/pg": "^8.11.14",
     "tsx": "^4.19.4",
     "typescript": "^5.8.3",
     "vitest": "^3.1.3"
