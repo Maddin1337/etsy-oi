@@ -67,6 +67,12 @@ function makeJob(overrides: Partial<CaptureJobRecord> = {}): CaptureJobRecord {
     capture_reason: "initial",
     worker_queue: "collector-listing",
     attempt_count: 0,
+    failure_class: null,
+    capture_mode: "fixture",
+    final_url: "https://www.etsy.com/listing/1234567890/example",
+    blocked: false,
+    captcha_detected: false,
+    captured_at: createdAt.toISOString(),
     started_at: null,
     finished_at: null,
     created_at: createdAt,
@@ -94,6 +100,7 @@ describe("analysis read model", () => {
     });
 
     expect(response.analysis.id).toBe("an_11111111-1111-1111-1111-111111111111");
+    expect(response.analysis.subject_label).toBe("mid century wandkunst");
     expect(response.normalized_input?.term).toBe("mid century wandkunst");
     expect(response.idempotency.replayed).toBe(false);
   });
@@ -143,7 +150,9 @@ describe("analysis read model", () => {
     expect(response.workflow.capture_jobs[0]).toMatchObject({
       analysis_id: "an_11111111-1111-1111-1111-111111111111",
       status: "completed",
-      worker_queue: "collector-listing"
+      worker_queue: "collector-listing",
+      capture_mode: "fixture",
+      final_url: "https://www.etsy.com/listing/1234567890/example"
     });
     expect(response.workflow.capture_jobs[0].started_at).toBe(createdAt.toISOString());
     expect(response.workflow.capture_jobs[0].finished_at).not.toBeNull();
@@ -184,12 +193,17 @@ describe("analysis read model", () => {
   it("respektiert terminale Capture-Job-Status aus der Persistenz", () => {
     const response = buildAnalysisDetailResponse(
       makeRow({ status: "failed", started_at: createdAt, finished_at: createdAt, error_code: "internal_error", term: "fail listing", listing_url: null }),
-      [makeJob({ status: "blocked" })],
+      [makeJob({ status: "blocked", failure_class: "blocked_captcha", blocked: true, captcha_detected: true })],
       createdAt.getTime() + 5000
     );
 
     expect(response.analysis.status).toBe("failed");
     expect(response.result).toBeNull();
-    expect(response.workflow.capture_jobs[0].status).toBe("blocked");
+    expect(response.workflow.capture_jobs[0]).toMatchObject({
+      status: "blocked",
+      failure_class: "blocked_captcha",
+      blocked: true,
+      captcha_detected: true
+    });
   });
 });

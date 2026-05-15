@@ -70,6 +70,9 @@ export type Priority = z.infer<typeof PrioritySchema>;
 export const RefreshPolicySchema = z.enum(["never", "if_stale", "force"]);
 export type RefreshPolicy = z.infer<typeof RefreshPolicySchema>;
 
+export const CaptureModeSchema = z.enum(["fixture", "live"]);
+export type CaptureMode = z.infer<typeof CaptureModeSchema>;
+
 export const TriggerSourceSchema = z.enum(["user", "scheduler", "rebuild", "canary"]);
 export type TriggerSource = z.infer<typeof TriggerSourceSchema>;
 
@@ -266,6 +269,9 @@ export const AnalysisDtoSchema = z.object({
   progress: AnalysisProgressSchema.optional(),
   error_code: z.string().nullable().optional(),
   error_message: z.string().nullable().optional(),
+  subject_label: z.string().nullable().optional(),
+  subject_ref: z.string().nullable().optional(),
+  refresh_of_analysis_id: z.string().nullable().optional(),
   retry_count: z.number().int().nonnegative().default(0),
   created_at: z.string().datetime(),
   started_at: z.string().datetime().nullable().optional(),
@@ -357,6 +363,12 @@ export const CaptureJobDtoSchema = z.object({
   capture_reason: CaptureReasonSchema,
   worker_queue: z.string(),
   attempt_count: z.number().int().nonnegative(),
+  failure_class: FailureClassSchema.nullable().optional(),
+  capture_mode: CaptureModeSchema.optional(),
+  final_url: z.string().optional(),
+  blocked: z.boolean().optional(),
+  captcha_detected: z.boolean().optional(),
+  captured_at: z.string().datetime().nullable().optional(),
   started_at: z.string().datetime().nullable().optional(),
   finished_at: z.string().datetime().nullable().optional(),
   created_at: z.string().datetime()

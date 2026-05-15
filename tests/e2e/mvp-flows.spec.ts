@@ -3,10 +3,10 @@ import { expect, test } from "@playwright/test";
 test("Suchbegriff-Analyse kann gestartet werden und liefert ein Ergebnis mit Score", async ({ page }) => {
   await page.goto("/");
 
-  await expect(page.getByRole("heading", { name: /starte eine fokussierte etsy-chancenanalyse/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /starte belastbarere etsy-chancenanalysen/i })).toBeVisible();
   await expect(page.getByLabel("Statusvorschau der Analyse").getByText("In Warteschlange")).toBeVisible();
-  await expect(page.getByLabel("Statusvorschau der Analyse").getByText("Fehlgeschlagen")).toBeVisible();
-  await expect(page.getByLabel("Statusvorschau der Analyse").getByText("Veraltet")).toBeVisible();
+  await expect(page.getByLabel("Statusvorschau der Analyse").getByText("Blockiert")).toBeVisible();
+  await expect(page.getByLabel("Statusvorschau der Analyse").getByText("Validierung fehlgeschlagen")).toBeVisible();
 
   await page.getByLabel("Suchbegriff").fill("mid century wandkunst");
   await page.getByRole("button", { name: "Suchbegriff-Analyse starten" }).click();
@@ -16,6 +16,7 @@ test("Suchbegriff-Analyse kann gestartet werden und liefert ein Ergebnis mit Sco
   await expect(page.getByLabel("Analyseergebnis").getByText("Chancen-Score")).toBeVisible();
   await expect(page.getByRole("heading", { name: "mid century wandkunst" })).toBeVisible();
   await expect(page.getByText("Mid-Century-Wandkunst-Print")).toBeVisible();
+  await expect(page.getByText("Capture: Fixture-Capture")).toBeVisible();
 });
 
 test("Listing-Analyse kann gestartet werden und rendert Snapshot-Details", async ({ page }) => {
@@ -30,9 +31,38 @@ test("Listing-Analyse kann gestartet werden und rendert Snapshot-Details", async
   await expect(page.getByLabel("Capture-Jobs").getByRole("heading", { name: "Capture-Jobs" })).toBeVisible();
   await expect(page.getByLabel("Capture-Jobs").getByText("Erstlauf")).toBeVisible();
   await expect(page.getByLabel("Capture-Jobs").getByText("collector-listing")).toBeVisible();
+  await expect(page.getByLabel("Capture-Jobs").getByText("Modus: Fixture-Capture")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Personalisierte Geburtsblumen-Halskette" })).toBeVisible();
   await expect(page.getByText("32.50")).toBeVisible();
   await expect(page.getByText("personalisierte halskette")).toBeVisible();
+});
+
+test("Blockierte Listing-Analyse zeigt den blockierten Status und Capture-Signale", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByRole("tab", { name: "Listing-Analyse" }).click();
+  await page.getByLabel("Etsy-Listing-URL").fill("https://www.etsy.com/listing/9990000001/example-blocked");
+  await page.getByRole("button", { name: "Listing-Analyse starten" }).click();
+
+  await expect(page).toHaveURL(/\/analyses\/an_/);
+  await expect(page.getByLabel("Analyse-Status").getByRole("heading", { name: "Blockiert" })).toBeVisible();
+  await expect(page.getByText(/capture-stufe wurde blockiert/i)).toBeVisible();
+  await expect(page.getByLabel("Capture-Jobs").getByText("Fehlerklasse: blocked_captcha")).toBeVisible();
+  await expect(page.getByLabel("Capture-Jobs").getByText("Captcha erkannt: ja")).toBeVisible();
+  await expect(page.getByLabel("Capture-Jobs").getByText("Blockiert: ja")).toBeVisible();
+});
+
+test("Validation-failed Listing-Analyse zeigt terminalen Qualitätsstatus", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByRole("tab", { name: "Listing-Analyse" }).click();
+  await page.getByLabel("Etsy-Listing-URL").fill("https://www.etsy.com/listing/9990000002/example-validation-failed");
+  await page.getByRole("button", { name: "Listing-Analyse starten" }).click();
+
+  await expect(page).toHaveURL(/\/analyses\/an_/);
+  await expect(page.getByLabel("Analyse-Status").getByRole("heading", { name: "Validierung fehlgeschlagen" })).toBeVisible();
+  await expect(page.getByText(/qualitätsregeln wurden nicht erfüllt/i)).toBeVisible();
+  await expect(page.getByLabel("Capture-Jobs").getByText("Fehlerklasse: validation_failed")).toBeVisible();
 });
 
 test("Listing-Formular zeigt API-Validierungsfehler bei ungültiger Eingabe", async ({ page }) => {
@@ -57,9 +87,9 @@ test("Analyse-Detail kann aktualisiert werden und zurück zum Dashboard navigier
   await expect(page).toHaveURL(/\/analyses\/an_/);
   await expect(page.getByLabel("Analyse-Status").getByRole("heading", { name: "Abgeschlossen" })).toBeVisible();
 
-  await page.getByRole("button", { name: "Zurück zu den Analyseformularen" }).click();
+  await page.getByRole("button", { name: "Zurück zum Dashboard" }).click();
   await expect(page).toHaveURL("/");
-  await expect(page.getByRole("heading", { name: /starte eine fokussierte etsy-chancenanalyse/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /starte belastbarere etsy-chancenanalysen/i })).toBeVisible();
 });
 
 test("Dashboard zeigt letzte Analysen, filtert sie und öffnet sie erneut", async ({ page }) => {
@@ -75,7 +105,7 @@ test("Dashboard zeigt letzte Analysen, filtert sie und öffnet sie erneut", asyn
   const keywordAnalysisUrl = page.url();
   const keywordAnalysisId = keywordAnalysisUrl.split("/").pop() ?? "";
 
-  await page.getByRole("button", { name: "Zurück zu den Analyseformularen" }).click();
+  await page.getByRole("button", { name: "Zurück zum Dashboard" }).click();
   await expect(page).toHaveURL("/");
 
   await page.getByRole("tab", { name: "Listing-Analyse" }).click();
@@ -85,7 +115,7 @@ test("Dashboard zeigt letzte Analysen, filtert sie und öffnet sie erneut", asyn
   const listingAnalysisUrl = page.url();
   const listingAnalysisId = listingAnalysisUrl.split("/").pop() ?? "";
 
-  await page.getByRole("button", { name: "Zurück zu den Analyseformularen" }).click();
+  await page.getByRole("button", { name: "Zurück zum Dashboard" }).click();
   await expect(page).toHaveURL("/");
 
   const recentAnalyses = page.getByLabel("Letzte Analysen");
@@ -103,7 +133,7 @@ test("Dashboard zeigt letzte Analysen, filtert sie und öffnet sie erneut", asyn
   await expect(page).toHaveURL(listingAnalysisUrl);
   await expect(page.getByLabel("Analyse-Status").getByRole("heading", { name: "Abgeschlossen" })).toBeVisible();
 
-  await page.getByRole("button", { name: "Zurück zu den Analyseformularen" }).click();
+  await page.getByRole("button", { name: "Zurück zum Dashboard" }).click();
   await recentAnalyses.getByRole("button", { name: "Alle" }).click();
   await recentAnalyses.getByRole("link", { name: new RegExp(`Keyword-Analyse\\s+${keywordAnalysisId}`) }).click();
   await expect(page).toHaveURL(keywordAnalysisUrl);

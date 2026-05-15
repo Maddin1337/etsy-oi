@@ -14,13 +14,19 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: "./apps/api/node_modules/.bin/tsc -p apps/api/tsconfig.json && node apps/api/dist/server.js",
+      command: "node apps/api/dist/server.js",
       url: "http://127.0.0.1:4000/healthz",
       reuseExistingServer: true,
       timeout: 20_000
     },
     {
-      command: "./apps/web/node_modules/.bin/vite --host 127.0.0.1 --port 3000 apps/web",
+      command: "node scripts/worker-stack.mjs",
+      url: "http://127.0.0.1:4300/healthz",
+      reuseExistingServer: true,
+      timeout: 20_000
+    },
+    {
+      command: "./apps/web/node_modules/.bin/vite preview --host 127.0.0.1 --port 3000 apps/web",
       url: "http://127.0.0.1:3000",
       reuseExistingServer: true,
       timeout: 20_000

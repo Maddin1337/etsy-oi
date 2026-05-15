@@ -1,4 +1,4 @@
-import React, { FormEvent, useEffect, useState } from "react";
+import React, { FormEvent, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   DEFAULT_LOCALE,
@@ -17,35 +17,50 @@ import {
 import "./styles.css";
 
 type AnalysisResult = KeywordResultSummary | ListingResultSummary;
-
 type AnalysisDetail = AnalysisDetailResponse;
-
 type AnalysisListResponse = {
   items: AnalysisDto[];
   next_cursor: string | null;
   filters: unknown;
 };
-
+type RuntimeStatus = {
+  status: "ready" | "degraded";
+  dependencies: Record<string, string>;
+  capture?: {
+    mode?: "fixture" | "live";
+    live_capture_enabled?: boolean;
+    raw_storage_bucket?: string;
+    worker_queue_default?: string;
+    supported_capture_modes?: string[];
+  };
+};
 type Flow = "keyword" | "listing";
 type DashboardFilter = "all" | Flow;
+type ResultCaptureMeta = {
+  mode?: string;
+  finalUrl?: string;
+  blocked?: boolean;
+  capturedAt?: string | null;
+  validatorStatus?: string;
+};
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "/api";
-const terminalStatuses: AnalysisStatus[] = ["completed", "partial", "failed", "stale", "refreshed", "cancelled"];
-const pollingTerminalStatuses: AnalysisStatus[] = ["completed", "failed", "stale", "refreshed", "cancelled"];
-const statePreview: AnalysisStatus[] = ["queued", "running", "partial", "completed", "failed", "stale"];
+const terminalStatuses: AnalysisStatus[] = ["completed", "partial", "failed", "stale", "refreshed", "cancelled", "blocked", "validation_failed"];
+const pollingTerminalStatuses: AnalysisStatus[] = ["completed", "failed", "stale", "refreshed", "cancelled", "blocked", "validation_failed"];
+const statePreview: AnalysisStatus[] = ["queued", "running", "partial", "completed", "blocked", "validation_failed"];
 
 function statusCopy(status: AnalysisStatus): { label: string; tone: string; detail: string } {
   const map: Record<AnalysisStatus, { label: string; tone: string; detail: string }> = {
     queued: { label: "In Warteschlange", tone: "neutral", detail: "Analyse angenommen und wartet auf die Erfassung." },
-    running: { label: "Läuft", tone: "active", detail: "Collector und Parser bauen gerade den Snapshot auf." },
-    partial: { label: "Teilweise", tone: "warning", detail: "Genug Daten für einen Score, aber mit reduzierter Sicherheit." },
-    completed: { label: "Abgeschlossen", tone: "success", detail: "Read-Model und Score sind bereit." },
-    failed: { label: "Fehlgeschlagen", tone: "danger", detail: "Die Analyse ist mit einem terminalen Fehler beendet worden." },
+    running: { label: "Läuft", tone: "active", detail: "Collector, Parser und Scoring arbeiten am aktuellen Lauf." },
+    partial: { label: "Teilweise", tone: "warning", detail: "Es gibt genug Daten für einen Score, aber nicht alles ist vollständig belastbar." },
+    completed: { label: "Abgeschlossen", tone: "success", detail: "Read-Model, Score und Workflow-Daten sind bereit." },
+    failed: { label: "Fehlgeschlagen", tone: "danger", detail: "Der Lauf ist mit einem terminalen Fehler beendet worden." },
     stale: { label: "Veraltet", tone: "warning", detail: "Das Ergebnis ist älter als das aktuelle Frischefenster." },
-    refreshed: { label: "Aktualisiert", tone: "success", detail: "Eine neuere verknüpfte Analyse hat das vorherige Ergebnis ersetzt." },
-    cancelled: { label: "Abgebrochen", tone: "neutral", detail: "Die Analyse wurde vor dem Abschluss abgebrochen." },
-    blocked: { label: "Blockiert", tone: "danger", detail: "Die Erfassung wurde blockiert und braucht eine Prüfung." },
-    validation_failed: { label: "Validierung fehlgeschlagen", tone: "danger", detail: "Die geparsten Daten haben die v1-Qualitätsregeln nicht bestanden." }
+    refreshed: { label: "Aktualisiert", tone: "success", detail: "Ein neuerer Lauf hat dieses Ergebnis ersetzt." },
+    cancelled: { label: "Abgebrochen", tone: "neutral", detail: "Die Analyse wurde vor dem Abschluss gestoppt." },
+    blocked: { label: "Blockiert", tone: "danger", detail: "Die Capture-Stufe wurde geblockt, typischerweise durch Captcha oder Anti-Bot-Signale." },
+    validation_failed: { label: "Validierung fehlgeschlagen", tone: "danger", detail: "Es wurden Daten erfasst, aber sie haben die Qualitätsregeln nicht bestanden." }
   };
   return map[status];
 }
@@ -60,7 +75,6 @@ function captureJobStatusCopy(status: CaptureJobStatus): { label: string; tone: 
     blocked: { label: "Blockiert", tone: "danger" },
     validation_failed: { label: "Validierung fehlgeschlagen", tone: "danger" }
   };
-
   return map[status];
 }
 
@@ -73,7 +87,6 @@ function captureReasonLabel(reason: CaptureReason): string {
     rebuild: "Neuaufbau",
     keyword_analysis: "Keyword-Analyse"
   };
-
   return map[reason];
 }
 
@@ -81,11 +94,66 @@ function analysisTypeLabel(type: AnalysisDto["type"]): string {
   return type === "keyword" ? "Keyword-Analyse" : "Listing-Analyse";
 }
 
-function analysisTimestamp(value: string): string {
-  return new Date(value).toLocaleString("de-DE", {
-    dateStyle: "short",
-    timeStyle: "short"
-  });
+function analysisTimestamp(value: string | null | undefined): string {
+  if (!value) return "k. A.";
+  return new Date(value).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" });
+}
+
+function shortText(value: string | null | undefined, max = 72): string {
+  if (!value) return "Ohne Betreff";
+  return value.length > max ? `${value.slice(0, max - 1)}…` : value;
+}
+
+function runtimeModeLabel(mode: string | undefined): string {
+  return mode === "live" ? "Live-Capture" : "Fixture-Capture";
+}
+
+function subjectLabel(analysis: AnalysisDto): string {
+  return shortText(analysis.subject_label ?? analysis.subject_ref ?? analysis.id, analysis.type === "listing" ? 64 : 56);
+}
+
+function groupedCounts(items: AnalysisDto[]) {
+  return {
+    total: items.length,
+    liveReady: items.filter((item) => ["completed", "partial"].includes(item.status)).length,
+    risky: items.filter((item) => ["blocked", "validation_failed", "failed"].includes(item.status)).length
+  };
+}
+
+function extractResultCaptureMeta(result: AnalysisResult): ResultCaptureMeta {
+  const artifacts = (result.artifacts ?? {}) as Record<string, unknown>;
+  const capture = (artifacts.capture ?? artifacts.page_capture ?? {}) as Record<string, unknown>;
+  const snapshot = result.type === "listing"
+    ? (result.snapshot as Record<string, unknown>)
+    : (result.market_summary as Record<string, unknown>);
+
+  return {
+    mode: typeof capture.mode === "string" ? capture.mode : undefined,
+    finalUrl: typeof capture.final_url === "string" ? capture.final_url : undefined,
+    blocked: capture.blocked === true,
+    capturedAt: typeof capture.captured_at === "string" ? capture.captured_at : typeof snapshot.captured_at === "string" ? snapshot.captured_at : null,
+    validatorStatus:
+      result.type === "listing"
+        ? typeof (result.snapshot as Record<string, unknown>).validator_status === "string"
+          ? String((result.snapshot as Record<string, unknown>).validator_status)
+          : undefined
+        : undefined
+  };
+}
+
+function recommendationForStatus(status: AnalysisStatus): string | null {
+  switch (status) {
+    case "blocked":
+      return "Die Capture-Stufe wurde blockiert. Für v2 solltest du denselben Lauf im Live-Modus prüfen und die Zielseite auf Captcha/Anti-Bot-Hinweise kontrollieren.";
+    case "validation_failed":
+      return "Es wurden Daten geholt, aber nicht in ausreichender Qualität. Prüfe Capture-Metadaten, Parser-Ausgabe und fehlende Kernfelder.";
+    case "partial":
+      return "Der Lauf ist nutzbar, aber nicht vollständig. Nutze die Warnings und Snapshot-Signale als Research-Hinweis statt als harte Wahrheit.";
+    case "failed":
+      return "Der Lauf ist terminal fehlgeschlagen. Fehlerklasse, Queue und Quell-URL sind die ersten Prüfstellen.";
+    default:
+      return null;
+  }
 }
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
@@ -107,10 +175,7 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 
 function App() {
   const [flow, setFlow] = useState<Flow>("keyword");
-  const [analysisId, setAnalysisId] = useState<string | null>(() => {
-    const match = window.location.pathname.match(/\/analyses\/([^/]+)/);
-    return match?.[1] ?? null;
-  });
+  const [analysisId, setAnalysisId] = useState<string | null>(() => window.location.pathname.match(/\/analyses\/([^/]+)/)?.[1] ?? null);
 
   function openAnalysis(id: string) {
     window.history.pushState(null, "", `/analyses/${id}`);
@@ -130,7 +195,7 @@ function App() {
           <span className="brandMark">OI</span>
           <span>
             <strong>Etsy Opportunity Intelligence</strong>
-            <small>MVP-v1-Arbeitsbereich</small>
+            <small>MVP-v2 Research Console</small>
           </span>
         </button>
         <nav className="topActions" aria-label="Hauptnavigation">
@@ -148,16 +213,9 @@ function App() {
   );
 }
 
-function Dashboard({
-  flow,
-  setFlow,
-  onCreated
-}: {
-  flow: Flow;
-  setFlow: (flow: Flow) => void;
-  onCreated: (id: string) => void;
-}) {
+function Dashboard({ flow, setFlow, onCreated }: { flow: Flow; setFlow: (flow: Flow) => void; onCreated: (id: string) => void }) {
   const [items, setItems] = useState<AnalysisDto[]>([]);
+  const [runtime, setRuntime] = useState<RuntimeStatus | null>(null);
   const [filter, setFilter] = useState<DashboardFilter>("all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -165,46 +223,58 @@ function Dashboard({
   useEffect(() => {
     let cancelled = false;
 
-    async function loadRecentAnalyses() {
+    async function loadDashboard() {
       try {
         setLoading(true);
-        const response = await apiFetch<AnalysisListResponse>("/v1/analyses");
+        const [analysisResponse, runtimeResponse] = await Promise.all([
+          apiFetch<AnalysisListResponse>("/v1/analyses"),
+          apiFetch<RuntimeStatus>("/readyz")
+        ]);
         if (cancelled) return;
-        setItems(response.items);
+        setItems(analysisResponse.items);
+        setRuntime(runtimeResponse);
         setError(null);
       } catch (err) {
         if (cancelled) return;
-        setError(err instanceof Error ? err.message : "Die letzten Analysen konnten nicht geladen werden.");
+        setError(err instanceof Error ? err.message : "Dashboard konnte nicht geladen werden.");
       } finally {
         if (!cancelled) setLoading(false);
       }
     }
 
-    loadRecentAnalyses();
+    loadDashboard();
     return () => {
       cancelled = true;
     };
   }, []);
 
-  const filteredItems = items.filter((item) => filter === "all" || item.type === filter);
+  const filteredItems = useMemo(() => items.filter((item) => filter === "all" || item.type === filter).slice(0, 10), [items, filter]);
+  const counts = groupedCounts(items);
+  const runtimeMode = runtime?.capture?.mode;
 
   return (
     <div className="shell">
       <section className="intro">
         <div>
           <p className="eyebrow">Beta-Analysekonsole</p>
-          <h1>Starte eine fokussierte Etsy-Chancenanalyse.</h1>
+          <h1>Starte belastbarere Etsy-Chancenanalysen mit sichtbarem Pipeline-Status.</h1>
           <p>
-            Der MVP unterstützt die zwei v1-Nutzerpfade: Keyword-Marktanalyse und Listing-Analyse. Beide nutzen die
-            REST-Verträge unter <code>/v1</code>.
+            v2 zeigt nicht nur den Score, sondern auch Capture-Modus, Workflow-Risiken und Research-Signale für
+            blockierte, partielle und validierungsfehlerhafte Läufe.
           </p>
         </div>
-        <div className="healthCard" aria-label="MVP-Umfang">
-          <strong>MVP-Umfang</strong>
-          <span>Deutsche Oberfläche</span>
-          <span>Top-24-Listing-Stichprobe</span>
-          <span>opportunity_v1-Score</span>
+        <div className="healthCard" aria-label="Laufzeitstatus">
+          <strong>{runtimeModeLabel(runtimeMode)}</strong>
+          <span>{runtime?.status === "ready" ? "API und Postgres bereit" : "Stack degradiert"}</span>
+          <span>Bucket: {runtime?.capture?.raw_storage_bucket ?? "k. A."}</span>
+          <span>Modi: {(runtime?.capture?.supported_capture_modes ?? ["fixture", "live"]).join(" / ")}</span>
         </div>
+      </section>
+
+      <section className="summaryGrid" aria-label="Übersicht">
+        <StatCard label="Analysen gesamt" value={String(counts.total)} detail="Persistierte Läufe im Verlauf" />
+        <StatCard label="Nutzbare Resultate" value={String(counts.liveReady)} detail="Status completed oder partial" />
+        <StatCard label="Risikofälle" value={String(counts.risky)} detail="blocked, validation_failed oder failed" />
       </section>
 
       <section className="workbench">
@@ -223,7 +293,7 @@ function Dashboard({
         <div className="sectionHeader">
           <div>
             <p className="eyebrow">Verlauf</p>
-            <h2>Letzte Analysen</h2>
+            <h2>Research-Verlauf</h2>
           </div>
           <div className="filterChips" role="toolbar" aria-label="Filter für letzte Analysen">
             <button className={filter === "all" ? "selectedChip" : ""} onClick={() => setFilter("all")} type="button">
@@ -238,12 +308,12 @@ function Dashboard({
           </div>
         </div>
 
-        {loading ? <div className="loadingPanel compact">Letzte Analysen werden geladen...</div> : null}
+        {loading ? <div className="loadingPanel compact">Dashboard wird geladen...</div> : null}
         {error ? <div className="alert danger compact">{error}</div> : null}
         {!loading && !error ? (
           filteredItems.length ? (
             <div className="recentAnalysisList">
-              {filteredItems.slice(0, 8).map((analysis) => {
+              {filteredItems.map((analysis) => {
                 const copy = statusCopy(analysis.status);
                 return (
                   <a
@@ -256,12 +326,14 @@ function Dashboard({
                     }}
                   >
                     <div>
-                      <strong>{analysisTypeLabel(analysis.type)}</strong>
+                      <strong>{subjectLabel(analysis)}</strong>
+                      <span>{analysisTypeLabel(analysis.type)}</span>
                       <span>{analysis.id}</span>
                     </div>
                     <div>
                       <b className={copy.tone}>{copy.label}</b>
                       <span>{analysisTimestamp(analysis.created_at)}</span>
+                      {analysis.refresh_of_analysis_id ? <span>Refresh von {analysis.refresh_of_analysis_id}</span> : null}
                     </div>
                   </a>
                 );
@@ -323,12 +395,7 @@ function KeywordForm({ onCreated }: { onCreated: (id: string) => void }) {
         Kategorie-Hinweis
         <input placeholder="Optional" value={categoryHint} onChange={(event) => setCategoryHint(event.target.value)} />
       </label>
-      <FormOptions
-        priority={priority}
-        refreshPolicy={refreshPolicy}
-        onPriority={setPriority}
-        onRefreshPolicy={setRefreshPolicy}
-      />
+      <FormOptions priority={priority} refreshPolicy={refreshPolicy} onPriority={setPriority} onRefreshPolicy={setRefreshPolicy} />
       {error ? <p className="formError">{error}</p> : null}
       <button className="primaryButton" type="submit" disabled={submitting}>
         {submitting ? "Wird gestartet..." : "Suchbegriff-Analyse starten"}
@@ -351,11 +418,7 @@ function ListingForm({ onCreated }: { onCreated: (id: string) => void }) {
     try {
       const response = await apiFetch<CreateAnalysisResponse>("/v1/analyses/listing", {
         method: "POST",
-        body: JSON.stringify({
-          listing_url: listingUrl,
-          priority,
-          refresh_policy: refreshPolicy
-        })
+        body: JSON.stringify({ listing_url: listingUrl, priority, refresh_policy: refreshPolicy })
       });
       onCreated(response.analysis.id);
     } catch (err) {
@@ -371,12 +434,7 @@ function ListingForm({ onCreated }: { onCreated: (id: string) => void }) {
         Etsy-Listing-URL
         <input value={listingUrl} onChange={(event) => setListingUrl(event.target.value)} />
       </label>
-      <FormOptions
-        priority={priority}
-        refreshPolicy={refreshPolicy}
-        onPriority={setPriority}
-        onRefreshPolicy={setRefreshPolicy}
-      />
+      <FormOptions priority={priority} refreshPolicy={refreshPolicy} onPriority={setPriority} onRefreshPolicy={setRefreshPolicy} />
       {error ? <p className="formError">{error}</p> : null}
       <button className="primaryButton" type="submit" disabled={submitting}>
         {submitting ? "Wird gestartet..." : "Listing-Analyse starten"}
@@ -452,13 +510,10 @@ function AnalysisView({ id, onBack }: { id: string; onBack: () => void }) {
     setRefreshing(true);
     setError(null);
     try {
-      const response = await apiFetch<CreateAnalysisResponse & { refresh_of_analysis_id: string }>(
-        `/v1/analyses/${id}/refresh`,
-        {
-          method: "POST",
-          body: JSON.stringify({ reason: "user_requested", priority: "high" })
-        }
-      );
+      const response = await apiFetch<CreateAnalysisResponse & { refresh_of_analysis_id: string }>(`/v1/analyses/${id}/refresh`, {
+        method: "POST",
+        body: JSON.stringify({ reason: "user_requested", priority: "high" })
+      });
       window.history.pushState(null, "", `/analyses/${response.analysis.id}`);
       window.location.assign(`/analyses/${response.analysis.id}`);
     } catch (err) {
@@ -472,7 +527,7 @@ function AnalysisView({ id, onBack }: { id: string; onBack: () => void }) {
   return (
     <div className="shell">
       <button className="backButton" onClick={onBack}>
-        Zurück zu den Analyseformularen
+        Zurück zum Dashboard
       </button>
       {error ? <div className="alert danger">{error}</div> : null}
       {detail ? (
@@ -496,30 +551,44 @@ function AnalysisView({ id, onBack }: { id: string; onBack: () => void }) {
 function StatusPanel({ analysis }: { analysis: AnalysisDto }) {
   const copy = statusCopy(analysis.status);
   const percent = analysis.progress?.percent ?? (terminalStatuses.includes(analysis.status) ? 100 : 0);
+  const recommendation = recommendationForStatus(analysis.status);
 
   return (
-    <section className={`statusPanel ${copy.tone}`} aria-label="Analyse-Status">
-      <div>
-        <p className="eyebrow">Analyse {analysis.id}</p>
-        <h2>{copy.label}</h2>
-        <p>{copy.detail}</p>
-      </div>
-      <div className="progressBlock">
-        <span>{percent}%</span>
-        <div className="progressTrack">
-          <div style={{ width: `${percent}%` }} />
+    <>
+      <section className={`statusPanel ${copy.tone}`} aria-label="Analyse-Status">
+        <div>
+          <p className="eyebrow">{analysisTypeLabel(analysis.type)} · {analysis.id}</p>
+          <h2>{copy.label}</h2>
+          <p>{copy.detail}</p>
+          <div className="inlineMeta">
+            <span>Betreff: {subjectLabel(analysis)}</span>
+            <span>Erstellt: {analysisTimestamp(analysis.created_at)}</span>
+            {analysis.refresh_of_analysis_id ? <span>Refresh von {analysis.refresh_of_analysis_id}</span> : null}
+          </div>
         </div>
-        <small>{analysis.progress?.phase ?? "abgeschlossen"}</small>
-      </div>
-    </section>
+        <div className="progressBlock">
+          <span>{percent}%</span>
+          <div className="progressTrack">
+            <div style={{ width: `${percent}%` }} />
+          </div>
+          <small>{analysis.progress?.phase ?? "abgeschlossen"}</small>
+        </div>
+      </section>
+      {recommendation ? <div className="alert warning soft">{recommendation}</div> : null}
+    </>
   );
 }
 
 function EmptyResult({ status }: { status: AnalysisStatus }) {
   if (status === "failed") {
-    return <div className="alert danger">Es wurde kein Ergebnis erzeugt. Bitte Fehlercode prüfen und danach erneut versuchen.</div>;
+    return <div className="alert danger">Es wurde kein Ergebnis erzeugt. Prüfe Fehlerklasse, Workflow und Quell-URL.</div>;
   }
-
+  if (status === "blocked") {
+    return <div className="alert danger">Die Analyse wurde während der Capture-Stufe blockiert. Für diesen Lauf gibt es deshalb noch kein belastbares Ergebnis.</div>;
+  }
+  if (status === "validation_failed") {
+    return <div className="alert danger">Es wurden Rohdaten erfasst, aber die Qualitätsregeln wurden nicht erfüllt. Ergebnis bleibt bewusst leer.</div>;
+  }
   return <div className="loadingPanel">Die Ergebnisansicht erscheint, sobald das Read-Model verfügbar ist.</div>;
 }
 
@@ -544,14 +613,26 @@ function WorkflowPanel({ jobs }: { jobs: CaptureJobDto[] }) {
                   <b className={status.tone}>{status.label}</b>
                 </div>
                 <div className="workflowMeta">
+                  <span>Modus: {runtimeModeLabel(job.capture_mode)}</span>
                   <span>Warteschlange: {job.worker_queue}</span>
                   <span>Jobtyp: {job.job_type}</span>
-                  <span>Ziel: {job.target_ref}</span>
+                  <span>Ziel: {shortText(job.target_ref, 48)}</span>
                   <span>Angelegt: {analysisTimestamp(job.created_at)}</span>
+                  {job.captured_at ? <span>Erfasst: {analysisTimestamp(job.captured_at)}</span> : null}
+                  {job.failure_class ? <span>Fehlerklasse: {job.failure_class}</span> : null}
+                  {job.blocked ? <span>Blockiert: ja</span> : null}
+                  {job.captcha_detected ? <span>Captcha erkannt: ja</span> : null}
                 </div>
-                <a href={job.source_url} target="_blank" rel="noreferrer">
-                  Quelle öffnen
-                </a>
+                <div className="workflowLinks">
+                  <a href={job.source_url} target="_blank" rel="noreferrer">
+                    Quelle öffnen
+                  </a>
+                  {job.final_url && job.final_url !== job.source_url ? (
+                    <a href={job.final_url} target="_blank" rel="noreferrer">
+                      Finale URL öffnen
+                    </a>
+                  ) : null}
+                </div>
               </article>
             );
           })}
@@ -564,15 +645,17 @@ function WorkflowPanel({ jobs }: { jobs: CaptureJobDto[] }) {
 }
 
 function ResultPanel({ result }: { result: AnalysisResult }) {
+  const captureMeta = extractResultCaptureMeta(result);
+
   return (
     <section className="resultLayout" aria-label="Analyseergebnis">
-      <ScoreCard result={result} />
-      {result.type === "keyword" ? <KeywordResult result={result} /> : <ListingResult result={result} />}
+      <ScoreCard result={result} captureMeta={captureMeta} />
+      {result.type === "keyword" ? <KeywordResult result={result} captureMeta={captureMeta} /> : <ListingResult result={result} captureMeta={captureMeta} />}
     </section>
   );
 }
 
-function ScoreCard({ result }: { result: AnalysisResult }) {
+function ScoreCard({ result, captureMeta }: { result: AnalysisResult; captureMeta: ResultCaptureMeta }) {
   const scores = [
     ["Chance", result.scores.opportunity_score],
     ["Nachfrage", result.scores.demand_score],
@@ -595,6 +678,12 @@ function ScoreCard({ result }: { result: AnalysisResult }) {
           </div>
         ))}
       </div>
+      <div className="scoreMeta">
+        <span>Capture: {runtimeModeLabel(captureMeta.mode)}</span>
+        {captureMeta.capturedAt ? <span>Erfasst: {analysisTimestamp(captureMeta.capturedAt)}</span> : null}
+        {captureMeta.validatorStatus ? <span>Validator: {captureMeta.validatorStatus}</span> : null}
+        {captureMeta.blocked ? <span>Block-Signal erkannt</span> : null}
+      </div>
       {result.warnings.length ? (
         <div className="warnings">
           {result.warnings.map((warning) => (
@@ -606,7 +695,7 @@ function ScoreCard({ result }: { result: AnalysisResult }) {
   );
 }
 
-function KeywordResult({ result }: { result: KeywordResultSummary }) {
+function KeywordResult({ result, captureMeta }: { result: KeywordResultSummary; captureMeta: ResultCaptureMeta }) {
   return (
     <div className="detailsPanel">
       <h2>{result.keyword.term}</h2>
@@ -616,14 +705,15 @@ function KeywordResult({ result }: { result: KeywordResultSummary }) {
         <Metric label="Medianpreis" value={result.market_summary.median_price?.amount ?? "k. A."} />
         <Metric label="Anzeigenanteil" value={formatPercent(result.market_summary.ads_share)} />
       </div>
+      <CaptureSignalPanel captureMeta={captureMeta} />
       <ExplanationList items={result.explanations} />
       <h3>Top-Listings</h3>
       <div className="listingTable">
         {result.top_listings.map((listing, index) => (
-          <div key={String(listing.listing_id ?? index)} className="listingRow">
-            <b>#{String(listing.rank_position)}</b>
-            <span>{String(listing.title)}</span>
-            <small>{String((listing.price as { amount?: string } | undefined)?.amount ?? "k. A.")}</small>
+          <div key={String((listing as { listing_id?: string }).listing_id ?? index)} className="listingRow">
+            <b>#{String((listing as { rank_position?: number }).rank_position ?? index + 1)}</b>
+            <span>{String((listing as { title?: string }).title ?? "Ohne Titel")}</span>
+            <small>{String(((listing as { price?: { amount?: string } }).price?.amount) ?? "k. A.")}</small>
           </div>
         ))}
       </div>
@@ -631,15 +721,13 @@ function KeywordResult({ result }: { result: KeywordResultSummary }) {
   );
 }
 
-function ListingResult({ result }: { result: ListingResultSummary }) {
+function ListingResult({ result, captureMeta }: { result: ListingResultSummary; captureMeta: ResultCaptureMeta }) {
   const snapshot = result.snapshot as {
-    captured_at?: string;
     price?: { amount?: string; currency?: string };
     review_count?: number;
     average_rating?: number;
     favorite_count?: number | null;
     image_count?: number;
-    validator_status?: string;
     tags?: string[];
   };
 
@@ -655,12 +743,32 @@ function ListingResult({ result }: { result: ListingResultSummary }) {
         <Metric label="Sterne" value={snapshot.average_rating ? snapshot.average_rating.toFixed(1) : "k. A."} />
         <Metric label="Bilder" value={String(snapshot.image_count ?? "k. A.")} />
       </div>
+      <CaptureSignalPanel captureMeta={captureMeta} />
       <ExplanationList items={result.explanations} />
       <div className="tagList">
         {(snapshot.tags ?? []).map((tag) => (
           <span key={tag}>{tag}</span>
         ))}
       </div>
+    </div>
+  );
+}
+
+function CaptureSignalPanel({ captureMeta }: { captureMeta: ResultCaptureMeta }) {
+  return (
+    <div className="captureMetaPanel">
+      <h3>Capture-Signale</h3>
+      <div className="metricGrid compactMetrics">
+        <Metric label="Modus" value={runtimeModeLabel(captureMeta.mode)} />
+        <Metric label="Validator" value={captureMeta.validatorStatus ?? "k. A."} />
+        <Metric label="Erfasst" value={captureMeta.capturedAt ? analysisTimestamp(captureMeta.capturedAt) : "k. A."} />
+        <Metric label="Block-Signal" value={captureMeta.blocked ? "Ja" : "Nein"} />
+      </div>
+      {captureMeta.finalUrl ? (
+        <a href={captureMeta.finalUrl} target="_blank" rel="noreferrer">
+          Finale Capture-URL öffnen
+        </a>
+      ) : null}
     </div>
   );
 }
@@ -681,6 +789,16 @@ function Metric({ label, value }: { label: string; value: string }) {
     <div className="metric">
       <span>{label}</span>
       <strong>{value}</strong>
+    </div>
+  );
+}
+
+function StatCard({ label, value, detail }: { label: string; value: string; detail: string }) {
+  return (
+    <div className="statCard">
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{detail}</small>
     </div>
   );
 }

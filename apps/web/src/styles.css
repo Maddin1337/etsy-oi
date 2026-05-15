@@ -118,6 +118,7 @@ main {
 }
 
 .healthCard,
+.statCard,
 .scoreCard,
 .detailsPanel,
 .workbench,
@@ -133,6 +134,28 @@ main {
   display: grid;
   gap: 8px;
   padding: 18px;
+}
+
+.summaryGrid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 24px;
+}
+
+.statCard {
+  display: grid;
+  gap: 6px;
+  padding: 18px;
+}
+
+.statCard span,
+.statCard small {
+  color: #5b544b;
+}
+
+.statCard strong {
+  font-size: 2rem;
 }
 
 .healthCard span {
@@ -344,6 +367,18 @@ button:focus {
   margin: 0;
 }
 
+.inlineMeta {
+  color: #5b544b;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  margin-top: 14px;
+}
+
+.inlineMeta span {
+  font-size: 0.92rem;
+}
+
 .active {
   border-left-color: #1f6f68;
 }
@@ -436,6 +471,12 @@ button:focus {
   font-weight: 700;
 }
 
+.workflowLinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
 .resultLayout {
   display: grid;
   gap: 18px;
@@ -459,6 +500,13 @@ button:focus {
   display: grid;
   gap: 12px;
   margin-top: 24px;
+}
+
+.scoreMeta {
+  color: #5b544b;
+  display: grid;
+  gap: 6px;
+  margin-top: 18px;
 }
 
 .scoreRows div {
@@ -488,6 +536,18 @@ meter {
   display: inline-block;
   font-weight: 700;
   margin-bottom: 18px;
+}
+
+.captureMetaPanel {
+  background: #f6f4ef;
+  border: 1px solid #e1d8ca;
+  border-radius: 8px;
+  margin: 18px 0;
+  padding: 16px;
+}
+
+.compactMetrics {
+  margin-bottom: 12px;
 }
 
 .metricGrid {
@@ -586,6 +646,10 @@ meter {
   margin: 0;
 }
 
+.alert.soft {
+  border-left-width: 6px;
+}
+
 .resultActions {
   margin-top: 18px;
 }
@@ -612,6 +676,7 @@ meter {
   }
 
   .stateGrid,
+  .summaryGrid,
   .metricGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -624,6 +689,7 @@ meter {
 
   .optionGrid,
   .stateGrid,
+  .summaryGrid,
   .metricGrid {
     grid-template-columns: 1fr;
   }

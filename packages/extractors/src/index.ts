@@ -84,13 +84,16 @@ function statusAndIssues<T extends { price?: unknown; price_missing_reason?: unk
 
 export function buildListingFixtureDocument(listingUrl: string) {
   const listingId = listingUrl.match(/\/listing\/(\d+)/)?.[1] ?? "1234567890";
-  const title = "Personalisierte Geburtsblumen-Halskette";
+  const blockedFixture = listingId === "9990000001";
+  const validationFailedFixture = listingId === "9990000002";
+  const title = blockedFixture ? "Verify you are human" : "Personalisierte Geburtsblumen-Halskette";
   const metadata = {
     etsy_listing_id: listingId,
     title,
     shop_name: "BirthBloomStudio",
     shop_url: `https://www.etsy.com/shop/BirthBloomStudio`,
-    price: { amount: "32.50", currency: "USD" },
+    price: validationFailedFixture ? undefined : { amount: "32.50", currency: "USD" },
+    fatal_missing_price: validationFailedFixture,
     review_count: 881,
     average_rating: 4.8,
     favorite_count: null,
@@ -100,7 +103,22 @@ export function buildListingFixtureDocument(listingUrl: string) {
     is_digital: false,
     status: "active"
   };
-  const html = `<!doctype html>
+  const html = blockedFixture
+    ? `<!doctype html>
+<html lang="de">
+  <head>
+    <title>${title}</title>
+    <script type="application/json" id="etsy-oi-page-data">${JSON.stringify(metadata)}</script>
+  </head>
+  <body>
+    <main data-page-kind="listing" data-listing-id="${listingId}">
+      <h1>Bitte bestätige, dass du ein Mensch bist</h1>
+      <p>verify you are human</p>
+      <p>captcha challenge</p>
+    </main>
+  </body>
+</html>`
+    : `<!doctype html>
 <html lang="de">
   <head>
     <title>${title}</title>
@@ -109,7 +127,7 @@ export function buildListingFixtureDocument(listingUrl: string) {
   <body>
     <main data-page-kind="listing" data-listing-id="${listingId}">
       <h1>${title}</h1>
-      <p data-price="32.50">USD 32.50</p>
+      ${validationFailedFixture ? "<p data-price-missing>Preis konnte nicht geladen werden</p>" : '<p data-price="32.50">USD 32.50</p>'}
       <p data-review-count="881">881 Bewertungen</p>
       <p data-average-rating="4.8">4.8 Sterne</p>
       <ul>${metadata.tags.map((tag) => `<li data-tag>${tag}</li>`).join("")}</ul>
@@ -121,6 +139,7 @@ export function buildListingFixtureDocument(listingUrl: string) {
 
 export function buildSearchFixtureDocument(queryTerm: string, locale = "en-US") {
   const normalizedTerm = queryTerm.trim();
+  const blockedFixture = /blocked|captcha/i.test(normalizedTerm);
   const results = [
     {
       etsy_listing_id: "1234567890",
@@ -202,7 +221,22 @@ export function buildSearchFixtureDocument(queryTerm: string, locale = "en-US") 
     total_results_estimate: 12453,
     results
   };
-  const html = `<!doctype html>
+  const html = blockedFixture
+    ? `<!doctype html>
+<html lang="de">
+  <head>
+    <title>Verify you are human</title>
+    <script type="application/json" id="etsy-oi-page-data">${JSON.stringify(metadata)}</script>
+  </head>
+  <body>
+    <main data-page-kind="search" data-query-term="${normalizedTerm}">
+      <h1>Verify you are human</h1>
+      <p>captcha challenge</p>
+      <p>unusual traffic detected</p>
+    </main>
+  </body>
+</html>`
+    : `<!doctype html>
 <html lang="de">
   <head>
     <title>${normalizedTerm}</title>
@@ -222,7 +256,7 @@ export function buildSearchFixtureDocument(queryTerm: string, locale = "en-US") 
     </main>
   </body>
 </html>`;
-  return { html, title: normalizedTerm, metadata };
+  return { html, title: blockedFixture ? "Verify you are human" : normalizedTerm, metadata };
 }
 
 export function parseCapturedArtifactEnvelope(raw: string): CapturedArtifactEnvelope {
@@ -255,7 +289,7 @@ export function extractListingSnapshotFromEnvelope(input: {
     title: String(metadata.title ?? input.artifact.page.title ?? ""),
     status: (metadata.status as "active" | "inactive" | "unknown" | undefined) ?? "unknown",
     price: priceMetadata?.amount ? decimalToMoneyMinor(priceMetadata.amount, priceMetadata.currency ?? "USD") : undefined,
-    price_missing_reason: priceMetadata?.amount ? undefined : "not_available",
+    price_missing_reason: priceMetadata?.amount ? undefined : metadata.fatal_missing_price === true ? undefined : "not_available",
     review_count: Number(metadata.review_count ?? 0),
     average_rating: Number(metadata.average_rating ?? 0),
     favorite_count: metadata.favorite_count == null ? null : Number(metadata.favorite_count),

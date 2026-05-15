@@ -73,6 +73,9 @@ export function toAnalysisDto(row: PersistedAnalysisRow, input: AnalysisSubjectI
     workflow_id: row.refresh_of_analysis_id
       ? `wf_refresh_${type}_${formatAnalysisId(row.refresh_of_analysis_id)}`
       : `wf_${type}_${formatAnalysisId(row.id)}`,
+    subject_label: type === "keyword" ? input.term ?? null : input.listing_url ?? null,
+    subject_ref: type === "keyword" ? input.term ?? null : input.listing_url ?? null,
+    refresh_of_analysis_id: row.refresh_of_analysis_id ? formatAnalysisId(row.refresh_of_analysis_id) : null,
     retry_count: row.retry_count,
     created_at: row.created_at.toISOString(),
     stale_at: new Date(row.created_at.getTime() + DEMO_STALE_WINDOW_MS).toISOString(),
@@ -146,6 +149,12 @@ function toCaptureJobDto(job: CaptureJobRecord, analysis: AnalysisDto): CaptureJ
     capture_reason: job.capture_reason,
     worker_queue: job.worker_queue,
     attempt_count: job.attempt_count,
+    failure_class: job.failure_class ?? null,
+    capture_mode: job.capture_mode,
+    final_url: job.final_url,
+    blocked: job.blocked,
+    captcha_detected: job.captcha_detected,
+    captured_at: job.captured_at ?? null,
     started_at: startedAt,
     finished_at: finishedAt,
     created_at: job.created_at.toISOString()

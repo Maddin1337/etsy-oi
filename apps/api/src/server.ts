@@ -11,7 +11,8 @@ import {
 import {
   buildKeywordResultSummary,
   buildListingResultSummary,
-  materializeAnalysis
+  describeCollector,
+  getCollectorConfig
 } from "@etsy-oi/pipeline";
 import { AnalysisStore, normalizedInputFor, refreshOfId } from "./analysis-store.js";
 import { keywordResult, listingResult } from "./demo-analysis.js";
@@ -97,6 +98,8 @@ export function buildServer() {
 
   app.get("/readyz", async (_request, reply) => {
     const postgresReady = await store.ping().then(() => true).catch(() => false);
+    const collectorConfig = getCollectorConfig(process.env);
+    const collectorDescription = describeCollector();
     const payload = {
       status: postgresReady ? "ready" : "degraded",
       dependencies: {
@@ -104,6 +107,13 @@ export function buildServer() {
         clickhouse: "not_configured",
         redis: "not_configured",
         temporal: "not_configured"
+      },
+      capture: {
+        mode: collectorConfig.captureMode,
+        live_capture_enabled: collectorConfig.captureMode === "live",
+        raw_storage_bucket: collectorConfig.rawStorageBucket,
+        worker_queue_default: collectorConfig.queueName,
+        supported_capture_modes: collectorDescription.supported_capture_modes
       }
     };
 
@@ -163,16 +173,12 @@ export function buildServer() {
     const record = await store.getByExternalId(request.params.analysis_id);
     if (!record) return reply.code(404).send(notFoundMessage(request.params.analysis_id));
 
-    await materializeAnalysis(record.id, { databaseUrl });
-    const refreshedRecord = await store.getByExternalId(request.params.analysis_id);
-    if (!refreshedRecord) return reply.code(404).send(notFoundMessage(request.params.analysis_id));
-
-    const result = refreshedRecord.analysis_type === "keyword"
-      ? await buildKeywordResultSummary(databaseUrl, refreshedRecord.id)
-      : await buildListingResultSummary(databaseUrl, refreshedRecord.id);
+    const result = record.analysis_type === "keyword"
+      ? await buildKeywordResultSummary(databaseUrl, record.id)
+      : await buildListingResultSummary(databaseUrl, record.id);
 
     return buildAnalysisDetailResponse(
-      refreshedRecord,
+      record,
       await store.listCaptureJobs(request.params.analysis_id),
       result
     );

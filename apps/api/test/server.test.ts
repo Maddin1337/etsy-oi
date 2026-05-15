@@ -1,7 +1,16 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Pool } from "pg";
+import {
+  processNextCaptureJob,
+  processNextParserJob,
+  processNextScoringJob
+} from "@etsy-oi/pipeline";
 import { buildServer } from "../src/server.js";
 
 const databaseUrl = process.env.DATABASE_URL ?? "postgresql://root@/etsy_oi?host=/var/run/postgresql";
@@ -19,6 +28,112 @@ async function queryOne<T>(sql: string, values: unknown[] = []): Promise<T> {
   return result.rows[0] as T;
 }
 
+async function drainWorkerPipeline(maxIterations = 30) {
+  for (let iteration = 0; iteration < maxIterations; iteration += 1) {
+    let progressed = false;
+
+    for (const queueName of ["collector-search", "collector-listing"] as const) {
+      if (await processNextCaptureJob({ queueName, databaseUrl, rawStorageBucket: "etsy-raw-test", captureMode: "fixture" })) {
+        progressed = true;
+      }
+    }
+
+    if (await processNextParserJob({ databaseUrl })) {
+      progressed = true;
+    }
+    if (await processNextScoringJob({ databaseUrl })) {
+      progressed = true;
+    }
+
+    if (!progressed) {
+      return;
+    }
+  }
+
+  throw new Error(`Worker-Pipeline hat nach ${maxIterations} Iterationen keinen Leerlauf erreicht.`);
+}
+
+async function finalizeCaptureForReadModel(
+  analysisId: string,
+  status: "completed" | "blocked" | "validation_failed",
+  failureClass: "blocked_captcha" | "validation_failed" | null,
+  capture: {
+    final_url: string;
+    blocked: boolean;
+    captcha_detected: boolean;
+    captured_at: string;
+  }
+) {
+  const persistedAnalysisId = analysisId.replace(/^an_/, "");
+  const captureJob = await queryOne<{ id: string }>(
+    `select id from capture_jobs where analysis_id = $1::uuid order by created_at asc limit 1`,
+    [persistedAnalysisId]
+  );
+  const dir = await mkdtemp(join(tmpdir(), "etsy-oi-capture-"));
+  const storagePath = join(dir, `${captureJob.id}.embedded.json`);
+  const artifactJson = JSON.stringify({
+    page: {
+      metadata: {
+        capture: {
+          mode: "fixture",
+          ...capture
+        }
+      }
+    }
+  });
+
+  await writeFile(storagePath, artifactJson, "utf8");
+  await pool.query(
+    `
+      update capture_jobs
+      set status = $2::capture_job_status,
+          failure_class = $3::failure_class,
+          started_at = now(),
+          finished_at = now(),
+          updated_at = now()
+      where id = $1::uuid
+    `,
+    [captureJob.id, status, failureClass]
+  );
+  await pool.query(
+    `
+      update analyses
+      set status = $2::analysis_status,
+          finished_at = now(),
+          updated_at = now()
+      where id = $1::uuid
+    `,
+    [persistedAnalysisId, status]
+  );
+  await pool.query(
+    `
+      insert into raw_artifacts (
+        capture_job_id,
+        artifact_kind,
+        storage_path,
+        content_type,
+        content_sha256,
+        byte_size,
+        encryption_status
+      ) values (
+        $1::uuid,
+        'embedded_json',
+        $2,
+        'application/json',
+        $3,
+        $4,
+        'none'
+      )
+    `,
+    [
+      captureJob.id,
+      storagePath,
+      createHash("sha256").update(artifactJson, "utf8").digest("hex"),
+      Buffer.byteLength(artifactJson, "utf8")
+    ]
+  );
+}
+
 beforeAll(() => {
   execFileSync("psql", ["-d", "etsy_oi", "-f", "packages/db/migrations/0001_foundation.sql"], {
     cwd: "/root/projects/etsy-opportunity-intelligence",
@@ -32,6 +147,12 @@ beforeEach(async () => {
 
   await pool.query(`
     TRUNCATE TABLE
+      score_snapshots,
+      current_entity_scores,
+      search_snapshot_results,
+      search_snapshots,
+      listing_snapshots,
+      raw_artifacts,
       capture_jobs,
       analyses,
       listings,
@@ -82,6 +203,13 @@ describe("api v1 analysis behavior", () => {
         clickhouse: "not_configured",
         redis: "not_configured",
         temporal: "not_configured"
+      },
+      capture: {
+        mode: "fixture",
+        live_capture_enabled: false,
+        raw_storage_bucket: process.env.RAW_STORAGE_BUCKET ?? "etsy-raw-dev",
+        worker_queue_default: "collector-listing",
+        supported_capture_modes: ["fixture", "live"]
       }
     });
   });
@@ -100,6 +228,13 @@ describe("api v1 analysis behavior", () => {
         clickhouse: "not_configured",
         redis: "not_configured",
         temporal: "not_configured"
+      },
+      capture: {
+        mode: "fixture",
+        live_capture_enabled: false,
+        raw_storage_bucket: process.env.RAW_STORAGE_BUCKET ?? "etsy-raw-dev",
+        worker_queue_default: "collector-listing",
+        supported_capture_modes: ["fixture", "live"]
       }
     });
   });
@@ -179,7 +314,7 @@ describe("api v1 analysis behavior", () => {
     expect(first.json().analysis.id).toBe(second.json().analysis.id);
   });
 
-  it("liest eine persistierte Analyse auch nach einem Server-Neustart wieder aus", async () => {
+  it("liest eine persistierte Analyse auch nach einem Server-Neustart wieder aus, ohne implizit Worker-Arbeit auszuführen", async () => {
     app = await makeServer();
     const created = await app.inject({
       method: "POST",
@@ -198,32 +333,22 @@ describe("api v1 analysis behavior", () => {
 
     expect(persisted.statusCode).toBe(200);
     expect(persisted.json().analysis.id).toBe(analysisId);
-    expect(persisted.json().analysis.status).toBe("partial");
+    expect(persisted.json().analysis.status).toBe("queued");
     expect(persisted.json().workflow.capture_jobs).toHaveLength(1);
-    expect(persisted.json().workflow.capture_jobs[0].status).toBe("partial");
     expect(persisted.json().workflow.capture_jobs[0]).toMatchObject({
       analysis_id: analysisId,
+      status: "queued",
       job_type: "listing_capture",
       target_type: "listing",
       capture_reason: "initial",
-      worker_queue: "collector-listing"
+      worker_queue: "collector-listing",
+      failure_class: null,
+      captured_at: null
     });
-    expect(persisted.json().result).toMatchObject({
-      type: "listing",
-      status: "partial",
-      listing: {
-        title: "Personalisierte Geburtsblumen-Halskette"
-      },
-      snapshot: {
-        price: { amount: "32.50", currency: "USD" },
-        review_count: 881,
-        average_rating: 4.8,
-        image_count: 7
-      }
-    });
+    expect(persisted.json().result).toBeNull();
   });
 
-  it("materialisiert eine Keyword-Analyse beim ersten Detail-Read über die echte Pipeline", async () => {
+  it("liefert zunächst den persistierten Zwischenstand und zeigt danach den terminalen Workflow-Status", async () => {
     app = await makeServer();
     const created = await app.inject({
       method: "POST",
@@ -236,26 +361,113 @@ describe("api v1 analysis behavior", () => {
     });
 
     const analysisId = created.json().analysis.id;
+    const queuedDetail = await app.inject({ method: "GET", url: `/v1/analyses/${analysisId}` });
+
+    expect(queuedDetail.statusCode).toBe(200);
+    expect(queuedDetail.json().analysis.status).toBe("queued");
+    expect(queuedDetail.json().result).toBeNull();
+    expect(queuedDetail.json().workflow.capture_jobs[0]).toMatchObject({
+      analysis_id: analysisId,
+      status: "queued",
+      worker_queue: "collector-search"
+    });
+
+    await finalizeCaptureForReadModel(analysisId, "completed", null, {
+      final_url: "https://www.etsy.com/search?q=mid%20century%20wandkunst",
+      blocked: false,
+      captcha_detected: false,
+      captured_at: new Date().toISOString()
+    });
+
+    const completedDetail = await app.inject({ method: "GET", url: `/v1/analyses/${analysisId}` });
+
+    expect(completedDetail.statusCode).toBe(200);
+    expect(completedDetail.json().analysis.status).toBe("completed");
+    expect(completedDetail.json().result).toBeNull();
+    expect(completedDetail.json().workflow.capture_jobs[0]).toMatchObject({
+      analysis_id: analysisId,
+      status: "completed",
+      worker_queue: "collector-search",
+      capture_mode: "fixture",
+      final_url: "https://www.etsy.com/search?q=mid%20century%20wandkunst",
+      blocked: false,
+      captcha_detected: false
+    });
+  });
+
+  it("markiert blockierte Listing-Captures mit Failure-Class und Capture-Metadaten", async () => {
+    app = await makeServer();
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/analyses/listing",
+      payload: {
+        listing_url: "https://www.etsy.com/listing/9990000001/example-blocked",
+        refresh_policy: "if_stale"
+      }
+    });
+
+    const analysisId = created.json().analysis.id;
+    await finalizeCaptureForReadModel(analysisId, "blocked", "blocked_captcha", {
+      final_url: "https://www.etsy.com/listing/9990000001/example-blocked",
+      blocked: true,
+      captcha_detected: true,
+      captured_at: new Date().toISOString()
+    });
+
     const detail = await app.inject({ method: "GET", url: `/v1/analyses/${analysisId}` });
 
     expect(detail.statusCode).toBe(200);
-    expect(detail.json().analysis.status).toBe("completed");
-    expect(detail.json().result).toMatchObject({
-      type: "keyword",
-      status: "completed",
-      keyword: {
-        term: "mid century wandkunst"
-      },
-      market_summary: {
-        total_results_estimate: 12453,
-        sampled_listing_count: 6,
-        median_price: { amount: "26.00", currency: "USD" },
-        ads_share: 0.17
+    expect(detail.json().analysis).toMatchObject({
+      id: analysisId,
+      status: "blocked",
+      subject_label: "https://www.etsy.com/listing/9990000001"
+    });
+    expect(detail.json().result).toBeNull();
+    expect(detail.json().workflow.capture_jobs[0]).toMatchObject({
+      status: "blocked",
+      failure_class: "blocked_captcha",
+      capture_mode: "fixture",
+      final_url: "https://www.etsy.com/listing/9990000001/example-blocked",
+      blocked: true,
+      captcha_detected: true
+    });
+  });
+
+  it("markiert Parser-Qualitätsfehler als validation_failed mit Capture-Metadaten", async () => {
+    app = await makeServer();
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/analyses/listing",
+      payload: {
+        listing_url: "https://www.etsy.com/listing/9990000002/example-validation-failed",
+        refresh_policy: "if_stale"
       }
     });
-    expect(detail.json().result.top_listings[0]).toMatchObject({
-      rank_position: 1,
-      title: "Mid-Century-Wandkunst-Print"
+
+    const analysisId = created.json().analysis.id;
+    await finalizeCaptureForReadModel(analysisId, "validation_failed", "validation_failed", {
+      final_url: "https://www.etsy.com/listing/9990000002/example-validation-failed",
+      blocked: false,
+      captcha_detected: false,
+      captured_at: new Date().toISOString()
+    });
+
+    const detail = await app.inject({ method: "GET", url: `/v1/analyses/${analysisId}` });
+
+    expect(detail.statusCode).toBe(200);
+    expect(detail.json().analysis).toMatchObject({
+      id: analysisId,
+      status: "validation_failed",
+      subject_label: "https://www.etsy.com/listing/9990000002"
+    });
+    expect(detail.json().result).toBeNull();
+    expect(detail.json().workflow.capture_jobs[0]).toMatchObject({
+      status: "validation_failed",
+      failure_class: "validation_failed",
+      capture_mode: "fixture",
+      final_url: "https://www.etsy.com/listing/9990000002/example-validation-failed",
+      blocked: false,
+      captcha_detected: false
     });
   });
 

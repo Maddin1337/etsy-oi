@@ -318,7 +318,7 @@ async function collectFixturePage(job: CaptureJobRow) {
     const url = `data:text/html;charset=utf-8,${encodeURIComponent(fixture.html)}`;
     await page.goto(url, { waitUntil: "load" });
     const html = await page.content();
-    const screenshot = await page.screenshot({ fullPage: true, type: "png" });
+    const screenshot = await page.screenshot({ fullPage: true, type: "png" }).catch(() => Buffer.alloc(0));
     const metadataText = await page.locator("#etsy-oi-page-data").textContent();
     return {
       finalUrl: url,
@@ -340,7 +340,7 @@ async function collectLivePage(job: CaptureJobRow) {
     await page.goto(targetUrl, { waitUntil: "domcontentloaded", timeout: 45_000 });
     await page.waitForLoadState("load").catch(() => undefined);
     const html = await page.content();
-    const screenshot = await page.screenshot({ fullPage: true, type: "png" });
+    const screenshot = await page.screenshot({ fullPage: true, type: "png" }).catch(() => Buffer.alloc(0));
     return {
       finalUrl: page.url(),
       html,
