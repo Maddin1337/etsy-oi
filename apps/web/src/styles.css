@@ -389,6 +389,53 @@ button:focus {
   padding: 22px;
 }
 
+.workflowPanel {
+  background: #fffdf9;
+  border: 1px solid #ddd6c9;
+  border-radius: 8px;
+  margin-top: 18px;
+  padding: 24px;
+}
+
+.workflowGrid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.workflowCard {
+  background: #f6f4ef;
+  border: 1px solid #ddd6c9;
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+.workflowCardHeader {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.workflowCardHeader strong,
+.workflowCardHeader b,
+.workflowMeta span {
+  display: block;
+}
+
+.workflowMeta {
+  color: #4f4941;
+  display: grid;
+  gap: 6px;
+}
+
+.workflowCard a {
+  color: #1f6f68;
+  font-weight: 700;
+}
+
 .resultLayout {
   display: grid;
   gap: 18px;

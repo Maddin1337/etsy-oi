@@ -27,6 +27,9 @@ test("Listing-Analyse kann gestartet werden und rendert Snapshot-Details", async
 
   await expect(page).toHaveURL(/\/analyses\/an_/);
   await expect(page.getByLabel("Analyse-Status").getByRole("heading", { name: "Abgeschlossen" })).toBeVisible();
+  await expect(page.getByLabel("Capture-Jobs").getByRole("heading", { name: "Capture-Jobs" })).toBeVisible();
+  await expect(page.getByLabel("Capture-Jobs").getByText("Erstlauf")).toBeVisible();
+  await expect(page.getByLabel("Capture-Jobs").getByText("collector-listing")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Personalisierte Geburtsblumen-Halskette" })).toBeVisible();
   await expect(page.getByText("32.50")).toBeVisible();
   await expect(page.getByText("personalisierte halskette")).toBeVisible();

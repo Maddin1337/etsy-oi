@@ -2,8 +2,12 @@ import React, { FormEvent, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   DEFAULT_LOCALE,
+  type AnalysisDetailResponse,
   type AnalysisDto,
   type AnalysisStatus,
+  type CaptureJobDto,
+  type CaptureJobStatus,
+  type CaptureReason,
   type CreateAnalysisResponse,
   type KeywordResultSummary,
   type ListingResultSummary,
@@ -14,10 +18,7 @@ import "./styles.css";
 
 type AnalysisResult = KeywordResultSummary | ListingResultSummary;
 
-type AnalysisDetail = {
-  analysis: AnalysisDto;
-  result: AnalysisResult | null;
-};
+type AnalysisDetail = AnalysisDetailResponse;
 
 type AnalysisListResponse = {
   items: AnalysisDto[];
@@ -47,6 +48,33 @@ function statusCopy(status: AnalysisStatus): { label: string; tone: string; deta
     validation_failed: { label: "Validierung fehlgeschlagen", tone: "danger", detail: "Die geparsten Daten haben die v1-Qualitätsregeln nicht bestanden." }
   };
   return map[status];
+}
+
+function captureJobStatusCopy(status: CaptureJobStatus): { label: string; tone: string } {
+  const map: Record<CaptureJobStatus, { label: string; tone: string }> = {
+    queued: { label: "In Warteschlange", tone: "neutral" },
+    running: { label: "Läuft", tone: "active" },
+    completed: { label: "Fertig", tone: "success" },
+    partial: { label: "Teilweise", tone: "warning" },
+    failed: { label: "Fehlgeschlagen", tone: "danger" },
+    blocked: { label: "Blockiert", tone: "danger" },
+    validation_failed: { label: "Validierung fehlgeschlagen", tone: "danger" }
+  };
+
+  return map[status];
+}
+
+function captureReasonLabel(reason: CaptureReason): string {
+  const map: Record<CaptureReason, string> = {
+    initial: "Erstlauf",
+    refresh: "Aktualisierung",
+    debug: "Debuglauf",
+    canary: "Canary-Lauf",
+    rebuild: "Neuaufbau",
+    keyword_analysis: "Keyword-Analyse"
+  };
+
+  return map[reason];
 }
 
 function analysisTypeLabel(type: AnalysisDto["type"]): string {
@@ -450,6 +478,7 @@ function AnalysisView({ id, onBack }: { id: string; onBack: () => void }) {
       {detail ? (
         <>
           <StatusPanel analysis={detail.analysis} />
+          <WorkflowPanel jobs={detail.workflow.capture_jobs} />
           {detail.result ? <ResultPanel result={detail.result} /> : <EmptyResult status={status} />}
           <div className="resultActions">
             <button className="secondaryButton" onClick={refresh} disabled={refreshing}>
@@ -492,6 +521,46 @@ function EmptyResult({ status }: { status: AnalysisStatus }) {
   }
 
   return <div className="loadingPanel">Die Ergebnisansicht erscheint, sobald das Read-Model verfügbar ist.</div>;
+}
+
+function WorkflowPanel({ jobs }: { jobs: CaptureJobDto[] }) {
+  return (
+    <section className="workflowPanel" aria-label="Capture-Jobs">
+      <div className="sectionHeader">
+        <div>
+          <p className="eyebrow">Workflow</p>
+          <h2>Capture-Jobs</h2>
+        </div>
+      </div>
+
+      {jobs.length ? (
+        <div className="workflowGrid">
+          {jobs.map((job) => {
+            const status = captureJobStatusCopy(job.status);
+            return (
+              <article key={job.id} className="workflowCard">
+                <div className="workflowCardHeader">
+                  <strong>{captureReasonLabel(job.capture_reason)}</strong>
+                  <b className={status.tone}>{status.label}</b>
+                </div>
+                <div className="workflowMeta">
+                  <span>Warteschlange: {job.worker_queue}</span>
+                  <span>Jobtyp: {job.job_type}</span>
+                  <span>Ziel: {job.target_ref}</span>
+                  <span>Angelegt: {analysisTimestamp(job.created_at)}</span>
+                </div>
+                <a href={job.source_url} target="_blank" rel="noreferrer">
+                  Quelle öffnen
+                </a>
+              </article>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="loadingPanel compact">Für diese Analyse wurden noch keine Capture-Jobs angelegt.</div>
+      )}
+    </section>
+  );
 }
 
 function ResultPanel({ result }: { result: AnalysisResult }) {
